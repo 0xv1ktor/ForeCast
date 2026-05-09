@@ -174,6 +174,6 @@ This is an MVP bridge until the full Arcium aggregate flow is wired end-to-end. 
 
 ## Resolution Model
 
-For the MVP, each native Forecast market is resolved by the wallet that created it after the resolution date. The creator must use the resolution criteria they wrote when creating the market. This keeps the demo flow simple and lets anyone create and finalize their own market without giving them early-resolution power.
+For the MVP, each native Forecast market is resolved by the wallet that created it after the selected resolution date/time. The creator must use the resolution criteria they wrote when creating the market. This keeps the demo flow simple and lets anyone create and finalize their own market without giving them early-resolution power.
 
 Longer term, creator resolution should be paired with a dispute window, DAO room governance, or an oracle flow before settlement is considered production-grade.

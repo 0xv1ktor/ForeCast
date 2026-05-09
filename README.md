@@ -106,7 +106,7 @@ The devnet integration layer is active:
 - Arcium client SDK stake payload preparation behind environment config
 - Faucet contract source supports 1,000 initial $CAST plus 100 $CAST per day refill
 - Private stake commitment records and public aggregate odds update bridge
-- MVP market resolution by the creator wallet after the resolution date, against each market's criteria
+- MVP market resolution by the creator wallet after the selected resolution date/time, against each market's criteria
 - Expert oracle, settlement, reputation, and room leaderboards remain future Arcium circuits
 
 ## Real Integration Config

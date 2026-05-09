@@ -11,6 +11,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
   const [question, setQuestion] = useState('');
   const [category, setCategory] = useState('Crypto');
   const [resolutionDate, setResolutionDate] = useState('');
+  const [resolutionTime, setResolutionTime] = useState('23:59');
   const [resolutionCriteria, setResolutionCriteria] = useState('');
   const [seedAmount, setSeedAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -41,6 +42,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
         question,
         category,
         resolutionDate,
+        resolutionTime,
         resolutionCriteria,
         marketType,
         oracleEnabled: oracle,
@@ -74,7 +76,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
           />
         </label>
 
-        <div className="two-column">
+        <div className="three-column">
           <label>
             <span>Category</span>
             <select className="input" value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -92,6 +94,20 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
               onChange={(event) => setResolutionDate(event.target.value)}
             />
           </label>
+          <label>
+            <span>Resolution Time</span>
+            <input
+              className="input"
+              type="time"
+              required
+              value={resolutionTime}
+              onChange={(event) => setResolutionTime(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="field-hint">
+          Resolution unlocks at the selected date and time in your local timezone.
         </div>
 
         <div>
@@ -117,7 +133,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
             onChange={(event) => setResolutionCriteria(event.target.value)}
           />
           <small className="field-hint">
-            MVP markets are resolved by the creator wallet after the resolution date, using this criteria. Use a source judges can verify.
+            MVP markets are resolved by the creator wallet after the selected resolution date/time, using this criteria. Use a source judges can verify.
           </small>
         </label>
 

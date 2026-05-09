@@ -196,7 +196,7 @@ export async function createForecastMarket(walletProvider, marketDraft) {
 
   const question = marketDraft.question?.trim();
   const resolutionCriteria = marketDraft.resolutionCriteria?.trim();
-  const resolutionTs = toResolutionTimestamp(marketDraft.resolutionDate);
+  const resolutionTs = toResolutionTimestamp(marketDraft.resolutionDate, marketDraft.resolutionTime);
 
   if (!question) throw new Error('Market question is required.');
   if (question.length > MAX_MARKET_QUESTION_LENGTH) {
@@ -770,10 +770,12 @@ function createAccountReader(data, initialOffset = 0) {
 
 function formatMarketDate(timestamp) {
   if (!timestamp) return 'TBD';
-  return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+  return new Date(timestamp * 1000).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
 }
 
@@ -859,9 +861,10 @@ function makeMarketId() {
   return BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
 }
 
-function toResolutionTimestamp(dateValue) {
+function toResolutionTimestamp(dateValue, timeValue = '23:59') {
   if (!dateValue) return 0;
-  return Math.floor(new Date(`${dateValue}T23:59:59Z`).getTime() / 1000);
+  const normalizedTime = /^\d{2}:\d{2}$/.test(timeValue || '') ? timeValue : '23:59';
+  return Math.floor(new Date(`${dateValue}T${normalizedTime}:00`).getTime() / 1000);
 }
 
 function writeString(value) {

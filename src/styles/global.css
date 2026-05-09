@@ -1583,6 +1583,12 @@ main {
   gap: 10px;
 }
 
+.three-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
 .radio-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2290,7 +2296,8 @@ textarea {
   .podium-grid,
   .tier-legend,
   .radio-grid,
-  .two-column {
+  .two-column,
+  .three-column {
     grid-template-columns: 1fr;
   }
 

@@ -358,10 +358,12 @@ function App() {
 }
 
 function buildCreatedMarketCard({ result, marketDraft }) {
-  const ends = new Date(`${marketDraft.resolutionDate}T23:59:59Z`).toLocaleDateString('en-US', {
+  const ends = new Date(Number(result.resolutionTs || 0) * 1000).toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
 
   const seedAmount = Number(marketDraft.seedAmount || 0);
