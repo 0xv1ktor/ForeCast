@@ -677,6 +677,29 @@ main {
   padding: 16px;
 }
 
+.empty-state {
+  display: grid;
+  align-content: center;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.empty-state.compact {
+  min-height: auto;
+  padding: 12px;
+  font-size: 12px;
+}
+
+.leaderboard-empty {
+  margin-bottom: 12px;
+}
+
 .info-card h3,
 .market-card h3,
 .room-card h3,
@@ -1157,6 +1180,14 @@ main {
   display: block;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .position-toggle {
@@ -1800,6 +1831,28 @@ main {
 .podium-card {
   display: grid;
   gap: 10px;
+}
+
+.profile-badge-empty {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.profile-badge-empty strong {
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.profile-badge-empty small {
+  max-width: 220px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
 }
 
 .podium-card strong {

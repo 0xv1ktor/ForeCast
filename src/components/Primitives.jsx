@@ -336,7 +336,7 @@ export function Navbar({
   refillLoading,
 }) {
   const [walletMenuOpen, setWalletMenuOpen] = useState(false);
-  const portfolioPath = connected ? `/profile/${wallet}` : '/profile/demo';
+  const portfolioPath = connected ? `/profile/${wallet}` : '/profile/disconnected';
 
   return (
     <nav className="navbar">
@@ -481,7 +481,7 @@ export function Footer({ navigate }) {
       </div>
       <div className="footer-meta">
         <span>Built on Solana. Computed with Arcium.</span>
-        <span>© 2025 ForeCast. Open source on GitHub.</span>
+        <span>© 2026 ForeCast. Open source on GitHub.</span>
       </div>
     </footer>
   );
@@ -495,13 +495,19 @@ export function TopTraders({ rows = [] }) {
         <span>return</span>
       </div>
       <div className="leaderboard-mini">
-        {rows.slice(0, 5).map(([tier, address, winRate], index) => (
-          <div className="leaderboard-row" key={`${address}-${index}`}>
-            <span className="rank">{index + 1}</span>
-            <strong>{address}</strong>
-            <em>{winRate}</em>
+        {rows.length ? (
+          rows.slice(0, 5).map(([tier, address, winRate], index) => (
+            <div className="leaderboard-row" key={`${address}-${index}`}>
+              <span className="rank">{index + 1}</span>
+              <strong>{address}</strong>
+              <em>{winRate}</em>
+            </div>
+          ))
+        ) : (
+          <div className="empty-state compact">
+            Leaderboard opens after resolved markets publish private reputation aggregates.
           </div>
-        ))}
+        )}
       </div>
     </section>
   );

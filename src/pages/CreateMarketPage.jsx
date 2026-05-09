@@ -116,6 +116,9 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
             value={resolutionCriteria}
             onChange={(event) => setResolutionCriteria(event.target.value)}
           />
+          <small className="field-hint">
+            MVP markets are resolved by the Forecast authority against this criteria. Creator-only resolution should wait for a dispute window or oracle flow.
+          </small>
         </label>
 
         <div className="toggle-row">

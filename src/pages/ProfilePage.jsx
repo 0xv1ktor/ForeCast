@@ -1,54 +1,38 @@
-import { AccuracyBadge, CastAmount, PageHeader, SectionHeader } from '../components/Primitives.jsx';
-import { fakeWallet, tierDetails } from '../data/forecastData.js';
-import { truncateAddress } from '../lib/formatters.js';
+import { CastAmount, SectionHeader } from '../components/Primitives.jsx';
+import { tierDetails } from '../data/forecastData.js';
+import { formatCast, truncateAddress } from '../lib/formatters.js';
 
-export function ProfilePage({ address }) {
+export function ProfilePage({ address, balance = 0, connected = false }) {
   const tiers = Object.keys(tierDetails);
+  const hasAddress = connected && address && address !== 'disconnected';
 
   return (
     <div className="page portfolio-page">
       <section className="profile-header">
         <div>
           <p className="eyebrow">Portfolio</p>
-          <h1>{truncateAddress(address || fakeWallet)}</h1>
-          <p className="mono">{address || fakeWallet}</p>
+          <h1>{hasAddress ? truncateAddress(address) : 'Connect wallet'}</h1>
+          <p className="mono">{hasAddress ? address : 'No wallet connected'}</p>
         </div>
-        <AccuracyBadge tier="Gold" large />
+        <div className="profile-badge-empty">
+          <strong>UNRANKED</strong>
+          <small>Reputation publishes after resolved markets</small>
+        </div>
       </section>
 
       <div className="stats-grid">
-        <ProfileStat label="Total Value" value="◎ 1,247" />
-        <ProfileStat label="Unrealized P&L" value="+18.40%" tone="positive" />
-        <ProfileStat label="Resolved P&L" value="+302" tone="positive" />
-        <ProfileStat label="Win Rate" value="74.20%" />
+        <ProfileStat label="$CAST Balance" value={`◎ ${formatCast(balance)}`} />
+        <ProfileStat label="Unrealized P&L" value="Pending" />
+        <ProfileStat label="Resolved P&L" value="Pending" />
+        <ProfileStat label="Win Rate" value="Pending" />
       </div>
 
       <section className="portfolio-table">
         <SectionHeader title="Active Positions" />
-        <div className="position-row position-head">
-          <span>Market</span>
-          <span>Side</span>
-          <span>Shares</span>
-          <span>Avg</span>
-          <span>Current</span>
-          <span>P&L</span>
-          <span>Action</span>
+        <div className="empty-state">
+          Individual positions are encrypted and are not exposed through the public profile.
+          Local portfolio accounting will appear here after the position indexer is connected.
         </div>
-        {[
-          ['BTC 150K by 2025', 'YES', '🔒', '0.62', '0.67', '+8.10%'],
-          ['Fed cut June', 'YES', '🔒', '0.51', '0.58', '+13.70%'],
-          ['Solana flip ETH', 'NO', '🔒', '0.61', '0.66', '+8.20%'],
-        ].map(([market, side, shares, avg, current, pnl]) => (
-          <div className="position-row" key={market}>
-            <span>{market}</span>
-            <strong className={side === 'YES' ? 'yes' : 'no'}>{side}</strong>
-            <span>{shares}</span>
-            <span>{avg}</span>
-            <span>{current}</span>
-            <span className="positive">{pnl}</span>
-            <button className="btn btn-secondary">View</button>
-          </div>
-        ))}
       </section>
 
       <section className="privacy-box">
@@ -60,22 +44,20 @@ export function ProfilePage({ address }) {
         <SectionHeader title="Reputation Breakdown" text="Accuracy tiers are public, while the record underneath remains private." />
         <div className="tier-progress">
           {tiers.map((tier) => (
-            <div key={tier} className={tier === 'Gold' ? 'current' : ''}>
+            <div key={tier}>
               <span />
               <strong>{tier}</strong>
               <small>{tierDetails[tier].range}</small>
             </div>
           ))}
         </div>
-        <p className="subtle">Approaching Platinum at 80% accuracy.</p>
+        <p className="subtle">Current tier is pending until resolved market outcomes produce reputation aggregates.</p>
       </section>
 
       <section className="profile-section">
         <SectionHeader title="Resolved Positions" />
-        <div className="activity-list">
-          <div>RESOLVED / YES / +142 $CAST / 🔒 market history private</div>
-          <div>RESOLVED / NO / +88 $CAST / 🔒 market history private</div>
-          <div>REPUTATION / score updated / 1 week ago</div>
+        <div className="empty-state">
+          No resolved Forecast positions are public. Arcium reveals reputation output only after settlement.
         </div>
       </section>
     </div>

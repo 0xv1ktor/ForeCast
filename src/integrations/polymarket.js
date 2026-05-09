@@ -113,7 +113,7 @@ function mapPolymarket(raw, event) {
     volume,
     volumeDisplay: formatUsdVolume(volume),
     ends: formatEndDate(raw.endDateIso || raw.endDate || raw.end_date_iso || event?.endDate),
-    createdBy: `0xpoly${String(raw.conditionId || raw.condition_id || id || 'market').slice(0, 12)}`,
+    createdBy: raw.conditionId || raw.condition_id || raw.slug || id,
     conditionId: raw.conditionId || raw.condition_id,
     slug: raw.slug,
     clobTokenIds: parseJsonArray(raw.clobTokenIds || raw.clob_token_ids),

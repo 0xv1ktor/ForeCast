@@ -29,6 +29,7 @@ import {
   getMXEPublicKey,
   x25519,
 } from '@arcium-hq/client';
+import { quoteBinaryTrade } from '../src/lib/marketMaker.js';
 
 loadLocalEnv();
 
@@ -262,22 +263,15 @@ function decodeForecastMarket(data) {
   return { yes, no, publicVolumeRaw };
 }
 
-function computeNextOdds({ currentYes, currentNo, currentVolumeRaw, position, amount, multiplier }) {
+function computeNextOdds({ currentYes, currentVolumeRaw, position, amount }) {
   const amountRaw = castUiAmountToRaw(amount);
-  const conviction = 1n;
-  let yesPool = (currentVolumeRaw * BigInt(Number(currentYes || 50))) / 100n;
-  let noPool = (currentVolumeRaw * BigInt(Number(currentNo || 50))) / 100n;
-  const weightedStake = amountRaw * conviction;
-
-  if (position === 'YES') {
-    yesPool += weightedStake;
-  } else {
-    noPool += weightedStake;
-  }
-
-  const weightedTotal = yesPool + noPool;
-  const yes = weightedTotal === 0n ? 50 : Number(((yesPool * 100n) + (weightedTotal / 2n)) / weightedTotal);
-  const boundedYes = Math.max(0, Math.min(100, yes));
+  const quote = quoteBinaryTrade({
+    yesPercent: currentYes,
+    volume: rawCastToNumber(currentVolumeRaw),
+    position,
+    amount,
+  });
+  const boundedYes = Math.max(1, Math.min(99, Math.round(quote.yes)));
   const publicVolumeRaw = currentVolumeRaw + amountRaw;
 
   return {
@@ -286,6 +280,10 @@ function computeNextOdds({ currentYes, currentNo, currentVolumeRaw, position, am
     publicVolumeRaw,
     publicVolumeDeltaRaw: amountRaw,
   };
+}
+
+function rawCastToNumber(value) {
+  return Number(value) / Number(10n ** CAST_DECIMALS);
 }
 
 function castUiAmountToRaw(value) {

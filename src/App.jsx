@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { Navbar, Toast, WalletModal } from './components/Primitives.jsx';
-import { fakeWallet, markets } from './data/forecastData.js';
+import { emptyWallet, markets } from './data/forecastData.js';
 import {
   createForecastMarket,
   fetchForecastNativeMarkets,
@@ -11,7 +11,8 @@ import {
   syncForecastWallet,
 } from './integrations/forecast.js';
 import { fetchForecastPolymarkets } from './integrations/polymarket.js';
-import { wait, walletProviderWithPublicKey } from './lib/async.js';
+import { walletProviderWithPublicKey } from './lib/async.js';
+import { quoteBinaryTrade } from './lib/marketMaker.js';
 import {
   CreateMarketPage,
   LandingPage,
@@ -28,7 +29,7 @@ function App() {
   const [path, setPath] = useState(window.location.pathname);
   const [walletModal, setWalletModal] = useState(false);
   const [connected, setConnected] = useState(() => localStorage.getItem('forecast-wallet-connected') === 'true');
-  const [wallet, setWallet] = useState(() => localStorage.getItem('forecast-wallet') || fakeWallet);
+  const [wallet, setWallet] = useState(() => localStorage.getItem('forecast-wallet') || emptyWallet);
   const [balance, setBalance] = useState(() => Number(localStorage.getItem('forecast-balance') || (localStorage.getItem('forecast-wallet-connected') ? 1000 : 0)));
   const [connectStatus, setConnectStatus] = useState('');
   const [selectedWallet, setSelectedWallet] = useState('');
@@ -132,22 +133,7 @@ function App() {
         return;
       }
 
-      setWallet(fakeWallet);
-      setConnected(true);
-      setBalance(0);
-      setConnectStatus('Demo wallet active. Simulating 1,000 $CAST faucet...');
-      await wait(650);
-      let nextBalance = 0;
-      const timer = window.setInterval(() => {
-        nextBalance += 125;
-        setBalance(Math.min(nextBalance, 1000));
-        if (nextBalance >= 1000) {
-          window.clearInterval(timer);
-          setWalletModal(false);
-          setConnectStatus('');
-          showToast('Demo wallet active. 1,000 $CAST faucet balance prepared. Daily refill limit: 100 $CAST.');
-        }
-      }, 90);
+      throw new Error(`${name} wallet was not found. Install or unlock ${name}, then try again.`);
     } catch (error) {
       setConnectStatus('');
       showToast(error.message || 'Wallet connection failed', 'warning');
@@ -196,7 +182,7 @@ function App() {
     localStorage.removeItem('forecast-balance');
     setConnected(false);
     setWalletProvider(null);
-    setWallet(fakeWallet);
+    setWallet(emptyWallet);
     setBalance(0);
     setRefillStatus(null);
     setSelectedWallet('');
@@ -301,7 +287,7 @@ function App() {
     if (path === '/markets') return <MarketsPage navigate={navigate} markets={appMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
     if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} onConnect={beginConnect} onStake={handleSubmitStake} />;
     if (path === '/create') return <CreateMarketPage connected={connected} walletProvider={walletProvider} onConnect={beginConnect} onCreateMarket={handleCreateMarket} />;
-    if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || fakeWallet)} />;
+    if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || '')} balance={balance} connected={connected} />;
     if (path === '/rooms') return <RoomsPage navigate={navigate} />;
     if (path.startsWith('/rooms/')) return <RoomDetailPage id={path.split('/')[2]} navigate={navigate} markets={appMarkets} />;
     if (path === '/leaderboard') return <LeaderboardPage />;
@@ -425,28 +411,20 @@ function buildStakeOddsUpdate(market, stakeDraft) {
   if (!market || market.type !== 'native') return null;
 
   const amount = Math.max(0, Number(stakeDraft.amount || 0));
-  const multiplier = 1;
   if (!amount) return null;
 
   const visibleVolume = Math.max(Number(market.volume || 0), parseCastVolume(market.volumeDisplay));
-  const weightedStake = amount * multiplier;
-  let yesPool = visibleVolume * (Number(market.yes || 50) / 100);
-  let noPool = visibleVolume * (Number(market.no || 50) / 100);
-
-  if (stakeDraft.position === 'YES') {
-    yesPool += weightedStake;
-  } else {
-    noPool += weightedStake;
-  }
-
-  const totalPool = Math.max(1, yesPool + noPool);
-  const yes = roundPercent((yesPool / totalPool) * 100);
-  const no = roundPercent(100 - yes);
+  const quote = quoteBinaryTrade({
+    yesPercent: market.yes,
+    volume: visibleVolume,
+    position: stakeDraft.position,
+    amount,
+  });
   const volume = visibleVolume + amount;
 
   return {
-    yes,
-    no,
+    yes: roundPercent(quote.yes),
+    no: roundPercent(quote.no),
     volume,
     volumeDisplay: `${formatCastVolume(volume)} $CAST`,
     aggregateStatus: 'local_preview',
@@ -468,7 +446,7 @@ function formatCastVolume(value) {
 }
 
 function roundPercent(value) {
-  return Math.max(0, Math.min(100, Number(value.toFixed(1))));
+  return Math.max(0, Math.min(100, Number(Number(value || 0).toFixed(1))));
 }
 
 function readCachedCreatedMarkets() {

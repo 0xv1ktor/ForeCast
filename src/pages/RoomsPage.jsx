@@ -7,7 +7,7 @@ import { formatCast } from '../lib/formatters.js';
 export function RoomsPage({ navigate }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [joinedRooms, setJoinedRooms] = useState([]);
-  const [customRooms, setCustomRooms] = useState([]);
+  const [customRooms, setCustomRooms] = useState(() => readCachedRooms());
   const visibleRooms = [...customRooms, ...rooms];
 
   function joinRoom(id) {
@@ -18,32 +18,45 @@ export function RoomsPage({ navigate }) {
     <div className="page">
       <PageHeader title="DAO Rooms" subtitle="Private prediction markets for communities" action={<button className="btn btn-primary" onClick={() => setModalOpen(true)}>+ Create Room</button>} />
 
-      <div className="rooms-grid">
-        {visibleRooms.map((room) => (
-          <article className="room-card" key={room.id}>
-            <div className="room-head">
-              <span className="room-avatar" style={{ backgroundColor: room.color || '#00c9a7' }}>{room.name[0]}</span>
-              <div>
-                <h3>{room.name}</h3>
-                <p>{room.category}</p>
+      {visibleRooms.length ? (
+        <div className="rooms-grid">
+          {visibleRooms.map((room) => (
+            <article className="room-card" key={room.id}>
+              <div className="room-head">
+                <span className="room-avatar" style={{ backgroundColor: room.color || '#00c9a7' }}>{room.name[0]}</span>
+                <div>
+                  <h3>{room.name}</h3>
+                  <p>{room.category}</p>
+                </div>
               </div>
-            </div>
-            <p>{room.description}</p>
-            <div className="room-stats">
-              <span>{formatCast(room.members)} members</span>
-              <span>{room.activeMarkets} active markets</span>
-              <span className="private-pill">🔒 Private</span>
-            </div>
-            <div className="room-actions">
-              <button className="btn btn-secondary" onClick={() => navigate(`/rooms/${room.id}`)}>View</button>
-              <button className="btn btn-teal" onClick={() => joinRoom(room.id)}>{joinedRooms.includes(room.id) ? 'Joined' : 'Join Room'}</button>
-            </div>
-          </article>
-        ))}
-      </div>
+              <p>{room.description}</p>
+              <div className="room-stats">
+                <span>{formatCast(room.members)} members</span>
+                <span>{room.activeMarkets} active markets</span>
+                <span className="private-pill">🔒 Private</span>
+              </div>
+              <div className="room-actions">
+                <button className="btn btn-secondary" onClick={() => navigate(`/rooms/${room.id}`)}>View</button>
+                <button className="btn btn-teal" onClick={() => joinRoom(room.id)}>{joinedRooms.includes(room.id) ? 'Joined' : 'Join Room'}</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <section className="empty-state">
+          No DAO rooms have been created in this session. Create one to configure a private room shell; onchain room persistence is the next integration pass.
+        </section>
+      )}
 
       <AnimatePresence>
-        {modalOpen && <CreateRoomModal onClose={() => setModalOpen(false)} onCreate={(room) => { setCustomRooms((items) => [room, ...items]); setModalOpen(false); }} />}
+        {modalOpen && <CreateRoomModal onClose={() => setModalOpen(false)} onCreate={(room) => {
+          setCustomRooms((items) => {
+            const next = [room, ...items];
+            cacheRooms(next);
+            return next;
+          });
+          setModalOpen(false);
+        }} />}
       </AnimatePresence>
     </div>
   );
@@ -87,4 +100,16 @@ function CreateRoomModal({ onClose, onCreate }) {
       </motion.form>
     </motion.div>
   );
+}
+
+export function readCachedRooms() {
+  try {
+    return JSON.parse(localStorage.getItem('forecast-rooms') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function cacheRooms(items) {
+  localStorage.setItem('forecast-rooms', JSON.stringify(items.slice(0, 20)));
 }

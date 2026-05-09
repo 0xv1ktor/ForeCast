@@ -38,7 +38,7 @@ export function MarketsPage({ navigate, markets, polymarketStatus, polymarketErr
         error={polymarketError}
         readyText="Live Polymarket markets loaded from Gamma API"
         loadingText="Loading live Polymarket markets..."
-        fallbackText="Using bundled Polymarket fallback data"
+        fallbackText="Live Polymarket discovery unavailable"
       />
 
       <section className="markets-dashboard">
@@ -71,9 +71,15 @@ export function MarketsPage({ navigate, markets, polymarketStatus, polymarketErr
             </div>
           </div>
 
-          <div className="market-grid">
-            {filteredMarkets.slice(1).map((market) => <MarketCard key={market.id} market={market} navigate={navigate} />)}
-          </div>
+          {filteredMarkets.length > 1 ? (
+            <div className="market-grid">
+              {filteredMarkets.slice(1).map((market) => <MarketCard key={market.id} market={market} navigate={navigate} />)}
+            </div>
+          ) : (
+            <div className="empty-state">
+              No markets match this view yet. Create a native Forecast market or wait for live Polymarket discovery to finish.
+            </div>
+          )}
         </main>
         <aside className="markets-sidebar">
           <TopTraders rows={leaderboardRows} />
@@ -82,9 +88,7 @@ export function MarketsPage({ navigate, markets, polymarketStatus, polymarketErr
       </section>
 
       <div className="pagination">
-        <button className="btn btn-secondary">←</button>
-        <span>Page 1 of 3</span>
-        <button className="btn btn-secondary">→</button>
+        <span>{filteredMarkets.length} markets loaded</span>
       </div>
     </div>
   );

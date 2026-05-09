@@ -8,6 +8,7 @@ import {
   TopTraders,
 } from '../components/Primitives.jsx';
 import { leaderboardRows } from '../data/forecastData.js';
+import { formatCast } from '../lib/formatters.js';
 
 const fadeUp = {
   hidden: { opacity: 0 },
@@ -17,6 +18,9 @@ const fadeUp = {
 export function LandingPage({ navigate, markets }) {
   const featured = markets.slice(0, 6);
   const heroMarket = featured[0];
+  const nativeMarkets = markets.filter((market) => market.type === 'native');
+  const polymarketMarkets = markets.filter((market) => market.type === 'polymarket');
+  const castVolume = nativeMarkets.reduce((sum, market) => sum + Number(market.volume || 0), 0);
 
   return (
     <>
@@ -36,21 +40,31 @@ export function LandingPage({ navigate, markets }) {
       </section>
 
       <section className="stats-bar terminal-stats">
-        <Stat number="2,847" label="Markets" />
-        <Stat number="◎ 4.2M" label="$CAST Staked" />
-        <Stat number="12,441" label="Users" />
-        <Stat number="98.30%" label="MPC Privacy" />
+        <Stat number={formatCast(markets.length)} label="Loaded Markets" />
+        <Stat number={`◎ ${formatCast(castVolume)}`} label="$CAST Staked" />
+        <Stat number={formatCast(nativeMarkets.length)} label="Native Markets" />
+        <Stat number={formatCast(polymarketMarkets.length)} label="Polymarket Signals" />
       </section>
 
       <section className="markets-dashboard">
         <main className="markets-main">
           <SectionHeader title="Featured Market" text="Largest active signal by Forecast volume." />
-          {heroMarket && <HeroMarketCard market={heroMarket} navigate={navigate} />}
+          {heroMarket ? (
+            <HeroMarketCard market={heroMarket} navigate={navigate} />
+          ) : (
+            <div className="empty-state">
+              No live markets loaded yet. Connect devnet or create the first Forecast market.
+            </div>
+          )}
 
           <SectionHeader title="Active Markets" action={<button className="text-link" onClick={() => navigate('/markets')}>All markets</button>} />
-          <div className="market-grid">
-            {featured.slice(1).map((market) => <MarketCard key={market.id} market={market} navigate={navigate} />)}
-          </div>
+          {featured.length > 1 ? (
+            <div className="market-grid">
+              {featured.slice(1).map((market) => <MarketCard key={market.id} market={market} navigate={navigate} />)}
+            </div>
+          ) : (
+            <div className="empty-state compact">Active market list will populate from Forecast devnet and Polymarket.</div>
+          )}
         </main>
         <aside className="markets-sidebar">
           <TopTraders rows={leaderboardRows} />

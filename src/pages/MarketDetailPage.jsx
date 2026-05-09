@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { prepareEncryptedStake } from '../integrations/arcium.js';
 import { formatCast, truncateAddress } from '../lib/formatters.js';
 import { wait } from '../lib/async.js';
+import { getDisplayOutcomePrices, quoteBinaryTrade } from '../lib/marketMaker.js';
 import {
   ArciumBadge,
   CategoryPill,
@@ -17,7 +18,6 @@ import {
 export function MarketDetailPage({ id, markets, balance = 0, connected = false, onConnect, onStake }) {
   const market = markets.find((item) => item.id === id) || markets[0];
   const [position, setPosition] = useState('YES');
-  const [tradeMode, setTradeMode] = useState('BUY');
   const [amount, setAmount] = useState('250');
   const [phase, setPhase] = useState('');
   const [success, setSuccess] = useState('');
@@ -25,17 +25,29 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
   const [stakeProof, setStakeProof] = useState(null);
   const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [stakeNoticeType, setStakeNoticeType] = useState('success');
-  const [activity, setActivity] = useState([
-    '🔒 Anonymous bought [ENCRYPTED] YES - 2 min ago',
-    '🔒 Anonymous bought [ENCRYPTED] NO - 5 min ago',
-    '🔒 [ENCRYPTED] position added - 8 min ago',
-    '🔒 Anonymous bought [ENCRYPTED] YES - 12 min ago',
-  ]);
+  const [activity, setActivity] = useState([]);
+
+  if (!market) {
+    return (
+      <div className="page detail-page">
+        <section className="empty-state">
+          Market not found. Create a native Forecast market or wait for live Polymarket discovery to finish.
+        </section>
+      </div>
+    );
+  }
+
   const numericAmount = Number(amount || 0);
-  const yesPrice = Number(market.yes || 0);
-  const noPrice = Number(market.no || 0);
-  const selectedPrice = position === 'YES' ? yesPrice : noPrice;
-  const estimatedShares = selectedPrice > 0 ? numericAmount / (selectedPrice / 100) : 0;
+  const displayPrices = getDisplayOutcomePrices(market.yes);
+  const quote = quoteBinaryTrade({
+    yesPercent: market.yes,
+    volume: market.volume,
+    position,
+    amount: numericAmount,
+  });
+  const yesPrice = displayPrices.yes;
+  const noPrice = displayPrices.no;
+  const estimatedShares = quote.shares;
 
   function addAmount(delta) {
     setAmount(String(Math.max(0, Number(amount || 0) + delta)));
@@ -83,7 +95,7 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
       setStakeSignature(stakeResult.signature);
       setStakeProof(stakeResult);
       setSuccess(`🔒 Position encrypted and recorded on Solana. Tx ${truncateAddress(stakeResult.signature)}.`);
-      setActivity((items) => [`🔒 Anonymous bought [ENCRYPTED] ${position} - just now`, ...items.slice(0, 5)]);
+      setActivity((items) => [{ time: 'now', side: position }, ...items.slice(0, 5)]);
     } catch (error) {
       setPhase('');
       setStakeNoticeType('warning');
@@ -104,7 +116,7 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
           <div className="market-facts">
             <span>Ends {market.ends}</span>
             <span>{market.volumeDisplay} volume</span>
-            <span>Created by {truncateAddress(market.createdBy)}</span>
+            <span>{market.type === 'polymarket' ? 'Polymarket ID' : 'Created by'} {truncateAddress(market.createdBy)}</span>
           </div>
         </div>
       </div>
@@ -153,30 +165,33 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
                 <span>Shares</span>
                 <span>User</span>
               </div>
-              {[
-                ['2m', 'YES', '🔒', '3x', 'anon'],
-                ['5m', 'NO', '🔒', '1x', 'anon'],
-                ['8m', 'YES', '🔒', '2x', 'anon'],
-                ['12m', 'YES', '🔒', '2x', 'anon'],
-              ].map(([time, side, tradeAmount, shares, user], index) => (
-                <div className="trade-row" key={`${time}-${side}-${index}`}>
-                  <span>{time}</span>
-                  <strong className={side === 'YES' ? 'yes' : 'no'}>{side}</strong>
-                  <span>{tradeAmount}</span>
-                  <span>{shares}</span>
-                  <span>{user}</span>
+              {activity.length ? (
+                activity.map((item, index) => (
+                  <div className="trade-row" key={`${item.time}-${item.side}-${index}`}>
+                    <span>{item.time}</span>
+                    <strong className={item.side === 'YES' ? 'yes' : 'no'}>{item.side}</strong>
+                    <span>🔒</span>
+                    <span>🔒</span>
+                    <span>anon</span>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state compact">
+                  No public trades yet in this browser session. Stake amounts and wallet positions stay private.
                 </div>
-              ))}
+              )}
             </div>
-            <div className="activity-list">
-              <AnimatePresence initial={false}>
-                {activity.map((item) => (
-                  <motion.div key={item} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    {item}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
+            {activity.length > 0 && (
+              <div className="activity-list">
+                <AnimatePresence initial={false}>
+                  {activity.map((item, index) => (
+                    <motion.div key={`${item.time}-${item.side}-${index}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      🔒 Anonymous bought [ENCRYPTED] {item.side} - {item.time}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
           </section>
 
           <section className="criteria-panel">
@@ -186,8 +201,10 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
             </button>
             {criteriaOpen && (
               <p>
-                Market resolves according to the stated source and closes on {market.ends}. Individual
-                stake data remains private while the final public outcome is posted to Forecast.
+                MVP resolution is performed by the Forecast authority after checking the stated criteria
+                and source. Creator-only resolution is intentionally avoided unless a dispute window or
+                oracle flow is added. Individual stake data remains private while the final public outcome
+                is posted to Forecast.
               </p>
             )}
           </section>
@@ -196,16 +213,7 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
         <aside className="stake-card order-panel">
           <div className="trade-ticket-head">
             <div className="trade-tabs">
-              {['BUY', 'SELL'].map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={tradeMode === mode ? 'active' : ''}
-                  onClick={() => setTradeMode(mode)}
-                >
-                  {mode === 'BUY' ? 'Buy' : 'Sell'}
-                </button>
-              ))}
+              <button type="button" className="active">Buy</button>
             </div>
             <button className="order-type-button" type="button">Market ▾</button>
           </div>
@@ -246,22 +254,22 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
           <div className="balance-line">Balance: {formatCast(balance)} $CAST</div>
 
           <div className="trade-summary">
-            <div><span>Avg price</span><strong>{formatCentPrice(selectedPrice)}</strong></div>
+            <div><span>Avg price</span><strong>{formatCentPrice(quote.avgPrice)}</strong></div>
             <div><span>Est. shares</span><strong>{formatCast(estimatedShares)}</strong></div>
           </div>
 
           <div className="payout-preview">
-            <div><span>Est. payout if correct</span><strong>{formatCast(estimatedShares)} $CAST</strong></div>
+            <div><span>Est. payout if correct</span><strong>{formatCast(quote.payout)} $CAST</strong></div>
             <div><span>Max loss</span><strong>{formatCast(numericAmount)} $CAST</strong></div>
           </div>
 
-          <button className="btn btn-full trade-execute" onClick={submitStake} disabled={Boolean(phase) || tradeMode === 'SELL'}>
+          <button className="btn btn-full trade-execute" onClick={submitStake} disabled={Boolean(phase)}>
             {phase ? (
               <>
                 {phase}
                 <span className="mini-dots"><i /><i /><i /></span>
               </>
-            ) : tradeMode === 'SELL' ? 'Sell coming soon' : 'Trade'}
+            ) : 'Trade'}
           </button>
           {success && (
             <motion.div className={`success-box ${stakeNoticeType === 'warning' ? 'warning-box' : ''}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
