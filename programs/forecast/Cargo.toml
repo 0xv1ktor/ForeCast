@@ -1,0 +1,40 @@
+[package]
+name = "forecast"
+version = "0.1.0"
+description = "Forecast privacy-enhanced prediction market program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "forecast"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl = { workspace = true }
+
+[dev-dependencies]
+base64ct = { workspace = true }
+blake3 = { workspace = true }
+bytemuck = { workspace = true }
+bytemuck_derive = { workspace = true }
+constant_time_eq = { workspace = true }
+indexmap = { workspace = true }
+proc-macro-crate = { workspace = true }
+serde_spanned = { workspace = true }
+toml_datetime = { workspace = true }
+toml_edit = { workspace = true }
+toml_parser = { workspace = true }
+toml_writer = { workspace = true }
+unicode-segmentation = { workspace = true }
+winnow = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

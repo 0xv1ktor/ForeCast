@@ -1,0 +1,10 @@
+{
+  "network": "devnet",
+  "rpcUrl": "https://api.devnet.solana.com",
+  "forecastProgramId": "6LVKicsAfSF9Ba5gZchdxgtP6hEdsQNqAaVZCqHHHz9L",
+  "forecastConfig": "3raFV27qUQMDCS1vrdZFV16XPYh3HsN7Tn7hDaoNtxYx",
+  "castMint": "HW7wUzty3SXUC6WVmvfAkot16XxgW14grakSzaSv1BRy",
+  "mintAuthority": "4mXVdXXaBaTqEf6gMvg9wifWVoNcKwA71tw1h9pHKHBr",
+  "vaultTokenAccount": "8x8Fj94pvBz2xwxkgYrLpWrqND5tYeag8KGmL1vuyj7H",
+  "userCastAccount": "7Afk1wHZ47vxAMrSw252kabu4LsJhz9Pq9tNTQVBXbzF"
+}

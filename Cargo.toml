@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+  "programs/forecast"
+]
+
+[workspace.dependencies]
+anchor-lang = "0.32.1"
+anchor-spl = "0.32.1"
+
+# SBF compatibility pins. Solana platform-tools may use Cargo 1.84.0,
+# so lock these below their Rust-2024 releases.
+base64ct = "=1.7.3"
+blake3 = "=1.8.2"
+bytemuck = "=1.22.0"
+bytemuck_derive = "=1.8.1"
+constant_time_eq = "=0.3.1"
+indexmap = "=2.11.4"
+proc-macro-crate = "=3.4.0"
+serde_spanned = "=1.0.4"
+toml_datetime = "=0.7.5"
+toml_edit = "=0.23.10"
+toml_parser = "=1.0.6"
+toml_writer = "=1.0.6"
+unicode-segmentation = "=1.12.0"
+winnow = "=0.7.14"
+
+[profile.release]
+overflow-checks = true
