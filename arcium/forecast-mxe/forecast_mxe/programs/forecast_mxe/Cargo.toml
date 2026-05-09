@@ -1,0 +1,44 @@
+[package]
+name = "forecast_mxe"
+version = "0.1.0"
+description = "Created with Arcium & Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "forecast_mxe"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "arcium-anchor/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+arcium-client = { default-features = false, version = "=0.9.7" }
+arcium-macros = "=0.9.7"
+arcium-anchor = "=0.9.7"
+proc-macro2 = { version = "=1.0.106", features = ["proc-macro"] }
+# Compatibility pins for Solana's bundled SBF Rust/Cargo.
+base64ct = "=1.7.3"
+blake3 = "=1.8.2"
+bytemuck = "=1.24.0"
+constant_time_eq = "=0.3.1"
+indexmap = "=2.11.4"
+proc-macro-crate = "=3.3.0"
+toml_edit = "=0.23.10+spec-1.0.0"
+toml_datetime = "=0.7.5"
+toml_parser = "=1.0.6+spec-1.1.0"
+toml_writer = "=1.0.6+spec-1.1.0"
+serde_spanned = "=1.0.4"
+unicode-segmentation = "=1.12.0"
+winnow = "=0.7.14"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

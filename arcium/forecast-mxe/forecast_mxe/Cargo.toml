@@ -1,0 +1,9 @@
+[workspace]
+members = ["programs/*", "encrypted-ixs"]
+resolver = "2"
+
+[patch.crates-io]
+asn1-rs-impl = { path = "patched-crates/asn1-rs-impl" }
+
+[profile.release]
+overflow-checks = true

@@ -4,8 +4,10 @@ import { Navbar, Toast, WalletModal } from './components/Primitives.jsx';
 import { fakeWallet, markets } from './data/forecastData.js';
 import {
   createForecastMarket,
+  fetchForecastNativeMarkets,
   getInjectedForecastWallet,
   requestDailyCastRefill,
+  submitForecastStake,
   syncForecastWallet,
 } from './integrations/forecast.js';
 import { fetchForecastPolymarkets } from './integrations/polymarket.js';
@@ -20,6 +22,7 @@ import {
   RoomDetailPage,
   RoomsPage,
 } from './pages/index.js';
+import { prepareEncryptedStake } from './integrations/arcium.js';
 
 function App() {
   const [path, setPath] = useState(window.location.pathname);
@@ -34,7 +37,9 @@ function App() {
   const [refillStatus, setRefillStatus] = useState(null);
   const [refillLoading, setRefillLoading] = useState(false);
   const [livePolymarkets, setLivePolymarkets] = useState([]);
-  const [createdMarkets, setCreatedMarkets] = useState([]);
+  const [createdMarkets, setCreatedMarkets] = useState(() => readCachedCreatedMarkets());
+  const [onchainMarkets, setOnchainMarkets] = useState([]);
+  const [marketOddsOverrides, setMarketOddsOverrides] = useState(() => readCachedMarketOddsOverrides());
   const [polymarketStatus, setPolymarketStatus] = useState('idle');
   const [polymarketError, setPolymarketError] = useState('');
 
@@ -67,6 +72,21 @@ function App() {
       });
 
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchForecastNativeMarkets()
+      .then((items) => {
+        if (active) setOnchainMarkets(items);
+      })
+      .catch((error) => {
+        console.warn('Forecast onchain market fetch failed', error);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   function navigate(to) {
@@ -153,16 +173,110 @@ function App() {
     }
   }
 
+  async function handleCopyAddress() {
+    if (!wallet) return;
+
+    try {
+      await navigator.clipboard.writeText(wallet);
+      showToast('Wallet address copied.');
+    } catch {
+      showToast('Could not copy address from this browser.', 'warning');
+    }
+  }
+
+  async function handleDisconnectWallet() {
+    try {
+      await walletProvider?.disconnect?.();
+    } catch {
+      // Some injected wallets do not expose disconnect, so local app state still clears below.
+    }
+
+    localStorage.removeItem('forecast-wallet-connected');
+    localStorage.removeItem('forecast-wallet');
+    localStorage.removeItem('forecast-balance');
+    setConnected(false);
+    setWalletProvider(null);
+    setWallet(fakeWallet);
+    setBalance(0);
+    setRefillStatus(null);
+    setSelectedWallet('');
+    showToast('Wallet disconnected.');
+  }
+
   async function handleCreateMarket(marketDraft) {
     if (!walletProvider) {
       throw new Error('Create Market needs a real Phantom or Backpack wallet.');
     }
 
     const result = await createForecastMarket(walletProvider, marketDraft);
-    const createdMarket = buildCreatedMarketCard({ result, marketDraft });
-    setCreatedMarkets((items) => [createdMarket, ...items]);
+    let createdMarket = buildCreatedMarketCard({ result, marketDraft });
+    const seedAmount = Number(marketDraft.seedAmount || 0);
+
+    if (seedAmount > 0) {
+      try {
+        const arciumResult = await prepareEncryptedStake({
+          market: createdMarket,
+          position: marketDraft.seedSide || 'YES',
+          amount: seedAmount,
+          multiplier: 1,
+        });
+
+        if (arciumResult.mode !== 'encrypted_payload') {
+          throw new Error(arciumResult.message);
+        }
+
+        const seedStakeResult = await submitForecastStake(walletProvider, {
+          market: createdMarket,
+          position: marketDraft.seedSide || 'YES',
+          amount: String(seedAmount),
+          multiplier: 1,
+          arciumPayload: arciumResult.payload,
+        });
+        setBalance(seedStakeResult.balance);
+        createdMarket = {
+          ...createdMarket,
+          ...buildOddsUpdateFromStakeResult(createdMarket, {
+            market: createdMarket,
+            position: marketDraft.seedSide || 'YES',
+            amount: String(seedAmount),
+            multiplier: 1,
+          }, seedStakeResult),
+        };
+      } catch (error) {
+        showToast(`Market created, but seed liquidity needs Arcium service: ${error.message}`, 'warning');
+      }
+    }
+
+    setCreatedMarkets((items) => {
+      const next = dedupeMarkets([createdMarket, ...items]);
+      cacheCreatedMarkets(next);
+      return next;
+    });
+    setOnchainMarkets((items) => dedupeMarkets([createdMarket, ...items]));
     showToast('Market created on Solana devnet.');
     navigate(`/markets/${createdMarket.id}`);
+    return result;
+  }
+
+  async function handleSubmitStake(stakeDraft) {
+    if (!walletProvider) {
+      throw new Error('Stake submission needs a real Phantom or Backpack wallet.');
+    }
+
+    const result = await submitForecastStake(walletProvider, stakeDraft);
+    setBalance(result.balance);
+    const oddsUpdate = buildOddsUpdateFromStakeResult(stakeDraft.market, stakeDraft, result);
+    if (oddsUpdate) {
+      setMarketOddsOverrides((items) => {
+        const next = {
+          ...items,
+          [getMarketKey(stakeDraft.market)]: oddsUpdate,
+        };
+        cacheMarketOddsOverrides(next);
+        return next;
+      });
+    }
+    showToast('Encrypted stake recorded on Solana devnet.');
     return result;
   }
 
@@ -171,27 +285,28 @@ function App() {
     const polymarketMarkets = livePolymarkets.length
       ? livePolymarkets
       : markets.filter((market) => market.type === 'polymarket');
+    const createdAndOnchainMarkets = dedupeMarkets([...createdMarkets, ...onchainMarkets]);
 
     return [
-      ...createdMarkets,
+      ...createdAndOnchainMarkets,
       ...nativeMarkets.slice(0, 3),
       ...polymarketMarkets.slice(0, 3),
       ...nativeMarkets.slice(3),
       ...polymarketMarkets.slice(3),
-    ];
-  }, [createdMarkets, livePolymarkets]);
+    ].map((market) => applyMarketOddsOverride(market, marketOddsOverrides));
+  }, [createdMarkets, onchainMarkets, livePolymarkets, marketOddsOverrides]);
 
   const route = useMemo(() => {
     if (path === '/') return <LandingPage navigate={navigate} markets={appMarkets} />;
     if (path === '/markets') return <MarketsPage navigate={navigate} markets={appMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
-    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} />;
+    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} onConnect={beginConnect} onStake={handleSubmitStake} />;
     if (path === '/create') return <CreateMarketPage connected={connected} walletProvider={walletProvider} onConnect={beginConnect} onCreateMarket={handleCreateMarket} />;
     if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || fakeWallet)} />;
     if (path === '/rooms') return <RoomsPage navigate={navigate} />;
     if (path.startsWith('/rooms/')) return <RoomDetailPage id={path.split('/')[2]} navigate={navigate} markets={appMarkets} />;
     if (path === '/leaderboard') return <LeaderboardPage />;
     return <LandingPage navigate={navigate} markets={appMarkets} />;
-  }, [path, appMarkets, polymarketStatus, polymarketError, connected, walletProvider]);
+  }, [path, appMarkets, polymarketStatus, polymarketError, connected, walletProvider, balance]);
 
   return (
     <div className="app-shell">
@@ -201,6 +316,8 @@ function App() {
         wallet={wallet}
         balance={balance}
         onConnect={beginConnect}
+        onCopyAddress={handleCopyAddress}
+        onDisconnect={handleDisconnectWallet}
         onRefill={handleDailyRefill}
         refillStatus={refillStatus}
         refillLoading={refillLoading}
@@ -234,6 +351,16 @@ function buildCreatedMarketCard({ result, marketDraft }) {
     year: 'numeric',
   });
 
+  const seedAmount = Number(marketDraft.seedAmount || 0);
+  const seedSide = marketDraft.seedSide || 'YES';
+  const seedOdds = seedAmount > 0
+    ? buildStakeOddsUpdate({ type: 'native', yes: 50, no: 50, volume: 0, volumeDisplay: '0 $CAST' }, {
+        position: seedSide,
+        amount: String(seedAmount),
+        multiplier: 1,
+      })
+    : null;
+
   return {
     id: result.marketAddress,
     marketId: result.marketId,
@@ -241,10 +368,11 @@ function buildCreatedMarketCard({ result, marketDraft }) {
     category: marketDraft.category,
     type: 'native',
     source: 'Native',
-    yes: 50,
-    no: 50,
-    volume: 0,
-    volumeDisplay: '0 $CAST',
+    yes: seedOdds?.yes ?? 50,
+    no: seedOdds?.no ?? 50,
+    volume: seedOdds?.volume ?? 0,
+    volumeDisplay: seedOdds?.volumeDisplay ?? '0 $CAST',
+    aggregateStatus: seedOdds?.aggregateStatus,
     ends,
     createdBy: result.creator,
     signature: result.signature,
@@ -257,6 +385,114 @@ function buildCreatedMarketCard({ result, marketDraft }) {
         }
       : null,
   };
+}
+
+function dedupeMarkets(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = item.marketAddress || item.id;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function applyMarketOddsOverride(market, overrides) {
+  const update = overrides[getMarketKey(market)];
+  if (update) return { ...market, ...update, aggregateStatus: update.aggregateStatus || 'local_preview' };
+  if (market.type === 'native' && Number(market.yes) === 50 && Number(market.no) === 50) {
+    return { ...market, aggregateStatus: 'pending_mpc' };
+  }
+  return market;
+}
+
+function buildOddsUpdateFromStakeResult(market, stakeDraft, stakeResult) {
+  if (stakeResult.oddsUpdate?.yes !== undefined) {
+    return {
+      yes: stakeResult.oddsUpdate.yes,
+      no: stakeResult.oddsUpdate.no,
+      volume: stakeResult.oddsUpdate.volume,
+      volumeDisplay: stakeResult.oddsUpdate.volumeDisplay,
+      aggregateStatus: 'onchain',
+      oddsSignature: stakeResult.oddsUpdate.signature,
+    };
+  }
+
+  return buildStakeOddsUpdate(market, stakeDraft);
+}
+
+function buildStakeOddsUpdate(market, stakeDraft) {
+  if (!market || market.type !== 'native') return null;
+
+  const amount = Math.max(0, Number(stakeDraft.amount || 0));
+  const multiplier = 1;
+  if (!amount) return null;
+
+  const visibleVolume = Math.max(Number(market.volume || 0), parseCastVolume(market.volumeDisplay));
+  const weightedStake = amount * multiplier;
+  let yesPool = visibleVolume * (Number(market.yes || 50) / 100);
+  let noPool = visibleVolume * (Number(market.no || 50) / 100);
+
+  if (stakeDraft.position === 'YES') {
+    yesPool += weightedStake;
+  } else {
+    noPool += weightedStake;
+  }
+
+  const totalPool = Math.max(1, yesPool + noPool);
+  const yes = roundPercent((yesPool / totalPool) * 100);
+  const no = roundPercent(100 - yes);
+  const volume = visibleVolume + amount;
+
+  return {
+    yes,
+    no,
+    volume,
+    volumeDisplay: `${formatCastVolume(volume)} $CAST`,
+    aggregateStatus: 'local_preview',
+  };
+}
+
+function getMarketKey(market = {}) {
+  return market.marketAddress || market.id || market.marketId || market.conditionId || market.title || 'unknown';
+}
+
+function parseCastVolume(value = '') {
+  if (!String(value).includes('$CAST')) return 0;
+  const number = String(value).replace(/[^0-9.]/g, '');
+  return Number(number || 0);
+}
+
+function formatCastVolume(value) {
+  return Math.round(Number(value || 0)).toLocaleString('en-US');
+}
+
+function roundPercent(value) {
+  return Math.max(0, Math.min(100, Number(value.toFixed(1))));
+}
+
+function readCachedCreatedMarkets() {
+  try {
+    return JSON.parse(localStorage.getItem('forecast-created-markets') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function cacheCreatedMarkets(items) {
+  localStorage.setItem('forecast-created-markets', JSON.stringify(items.slice(0, 25)));
+}
+
+function readCachedMarketOddsOverrides() {
+  try {
+    return JSON.parse(localStorage.getItem('forecast-market-odds-overrides') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function cacheMarketOddsOverrides(items) {
+  localStorage.setItem('forecast-market-odds-overrides', JSON.stringify(items));
 }
 
 export default App;

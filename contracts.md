@@ -19,7 +19,7 @@ That single smart contract contains:
 The Arcium MXE source remains separate because Arcium confidential computation is compiled/deployed through Arcium tooling:
 
 ```text
-arcium/forecast-mxe
+arcium/forecast-mxe/forecast_mxe
 ```
 
 So the final architecture is:
@@ -49,9 +49,21 @@ Current devnet Forecast program ID:
 6LVKicsAfSF9Ba5gZchdxgtP6hEdsQNqAaVZCqHHHz9L
 ```
 
+Current devnet Arcium MXE program ID:
+
+```text
+3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK
+```
+
+Current devnet Arcium cluster offset:
+
+```text
+456
+```
+
 ## Build
 
-Use Rust 1.88 for Anchor's host-side IDL generation. Solana SBF still uses its bundled compiler internally, which is why the Cargo compatibility pins remain in place.
+Use Rust 1.88 for Anchor's host-side IDL generation and Arcium's circuit build. Solana SBF still uses its bundled compiler internally, which is why the Cargo compatibility pins remain in place.
 
 ```bash
 RUSTUP_TOOLCHAIN=1.88.0 anchor build
@@ -73,6 +85,7 @@ Solana platform-tools may still use bundled Cargo `1.84.0` during SBF builds. To
 - `winnow = 0.7.14`
 - `bytemuck = 1.22.0`
 - `bytemuck_derive = 1.8.1`
+- `asn1-rs-impl = 0.2.0` is patched locally under `arcium/forecast-mxe/forecast_mxe/patched-crates/asn1-rs-impl` so it uses `proc_macro2::Span::call_site()` directly with current Rust/proc-macro2 behavior
 
 If Cargo has already resolved newer versions, refresh the lockfile with:
 
@@ -99,8 +112,31 @@ Commit `Cargo.lock` for reproducible program builds.
 For Arcium:
 
 ```bash
-cd arcium/forecast-mxe
+cd arcium/forecast-mxe/forecast_mxe
 RUSTUP_TOOLCHAIN=1.88.0 arcium build
+```
+
+The active Arcium circuit is `submit_private_stake_v2`. It accepts encrypted stake fields:
+
+- market id
+- YES/NO side
+- $CAST amount
+- conviction multiplier
+
+It computes an encrypted stake receipt containing the market id, side, and weighted amount. This replaces Arcium's generated starter example, `add_together`.
+
+Forecast uses the same off-chain circuit source pattern as CipherVote. Upload:
+
+```text
+build/submit_private_stake_v2.arcis
+```
+
+to public storage, then initialize the computation definition with `CIRCUIT_URL=<public-url>`. The older `submit_private_stake` computation definition was initialized as on-chain storage during testing, so `submit_private_stake_v2` is used for the off-chain URL-backed definition.
+
+Current public circuit URL:
+
+```text
+https://nursxiduxmnvugcrcjwg.supabase.co/storage/v1/object/public/arcium-circuits/forecast%20circuits/submit_private_stake_v2.arcis
 ```
 
 ## Deploy Sequence
@@ -122,3 +158,16 @@ node scripts/initializeForecast.mjs
 ```
 
 The script writes `devnet-addresses.json` with the created `$CAST` mint, vault token account, mint authority PDA, and Forecast config PDA.
+
+## Odds Keeper
+
+During local development, Vite mounts the Forecast API middleware, so one command serves both the frontend and local API routes:
+
+```text
+POST /stake
+POST /odds/update
+```
+
+After an encrypted stake confirms, the frontend calls this keeper for real Forecast-native market accounts. The keeper signs `update_public_odds` with `FORECAST_ODDS_KEEPER_KEYPAIR_PATH` and writes the new public YES/NO aggregate to the Forecast program, so refreshes load moved odds from devnet instead of returning to `50/50`.
+
+This is an MVP bridge until the full Arcium aggregate flow is wired end-to-end. The private stake commitment remains separate; the public update only writes aggregate percentages and volume. `node server/arciumStakeService.mjs` still works as an optional standalone fallback, but `npm run dev` is the normal local workflow.

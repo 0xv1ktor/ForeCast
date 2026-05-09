@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { useState } from 'react';
 import { tierDetails } from '../data/forecastData.js';
 import { formatCast, truncateAddress } from '../lib/formatters.js';
 
@@ -26,7 +27,7 @@ export function AppLink({ to, navigate, children, className = '', onClick }) {
 export function ArciumBadge({ short = false, permissioned = false }) {
   return (
     <span className="arcium-badge">
-      <span aria-hidden="true">🔒</span>
+      <span aria-hidden="true"></span>
       {permissioned ? 'Arcium MPC' : short ? 'MPC active' : 'Encrypted computation'}
     </span>
   );
@@ -34,7 +35,7 @@ export function ArciumBadge({ short = false, permissioned = false }) {
 
 export function CastAmount({ value, encrypted = false }) {
   if (encrypted) {
-    return <span className="cast encrypted">🔒 [ENCRYPTED]</span>;
+    return <span className="cast encrypted">[ENCRYPTED]</span>;
   }
 
   return (
@@ -63,8 +64,8 @@ export function ProbabilityDisplay({ yes, change, large = false }) {
 
   return (
     <div className={`probability-display ${large ? 'probability-large' : ''}`}>
-      <strong className={className}>{probability.toFixed(2)}%</strong>
-      <span>{delta >= 0 ? '+' : ''}{delta.toFixed(2)}% 24h</span>
+      <strong className={className}>{formatPercent(probability)}%</strong>
+      <span>{delta >= 0 ? '+' : ''}{formatPercent(delta)}% 24h</span>
     </div>
   );
 }
@@ -95,8 +96,8 @@ export function OddsBar({ yes, no, large = false }) {
   return (
     <div className={`odds-wrap ${large ? 'odds-large' : ''}`}>
       <div className="odds-row">
-        <span className="yes">YES {Number(yes).toFixed(2)}%</span>
-        <span className="no">NO {Number(no).toFixed(2)}%</span>
+        <span className="yes">YES {formatPercent(yes)}%</span>
+        <span className="no">NO {formatPercent(no)}%</span>
       </div>
       <div className="odds-bar" aria-label={`Yes ${yes} percent, No ${no} percent`}>
         <motion.span
@@ -134,10 +135,12 @@ export function MarketCard({ market, navigate }) {
       <Sparkline market={market} />
       <div className="market-card-bottom">
         <span>{market.volumeDisplay}</span>
-        <span className={change >= 0 ? 'daily-change positive' : 'daily-change negative'}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%</span>
+        <span className={change >= 0 ? 'daily-change positive' : 'daily-change negative'}>{change >= 0 ? '▲' : '▼'} {formatPercent(Math.abs(change))}%</span>
         <span>{market.ends}</span>
         <span className="lock-mark">🔒</span>
       </div>
+      {market.aggregateStatus === 'pending_mpc' && <span className="market-state warning">Pending aggregate</span>}
+      {market.aggregateStatus === 'local_preview' && <span className="market-state">Local preview</span>}
     </motion.button>
   );
 }
@@ -159,9 +162,11 @@ export function HeroMarketCard({ market, navigate }) {
         <Sparkline market={market} height={42} />
         <div className="market-card-bottom">
           <span>{market.volumeDisplay}</span>
-          <span className={change >= 0 ? 'daily-change positive' : 'daily-change negative'}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)}% 24h</span>
+          <span className={change >= 0 ? 'daily-change positive' : 'daily-change negative'}>{change >= 0 ? '▲' : '▼'} {formatPercent(Math.abs(change))}% 24h</span>
           <span>Closes {market.ends}</span>
         </div>
+        {market.aggregateStatus === 'pending_mpc' && <span className="market-state warning">Pending aggregate</span>}
+        {market.aggregateStatus === 'local_preview' && <span className="market-state">Local preview</span>}
       </button>
       <div className="hero-trade-buttons">
         <button className="trade-button trade-yes" type="button" onClick={() => navigate(`/markets/${market.id}`)}>BUY YES</button>
@@ -318,7 +323,19 @@ export function Toast({ toast }) {
   );
 }
 
-export function Navbar({ navigate, connected, wallet, balance, onConnect, onRefill, refillStatus, refillLoading }) {
+export function Navbar({
+  navigate,
+  connected,
+  wallet,
+  balance,
+  onConnect,
+  onCopyAddress,
+  onDisconnect,
+  onRefill,
+  refillStatus,
+  refillLoading,
+}) {
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false);
   const portfolioPath = connected ? `/profile/${wallet}` : '/profile/demo';
 
   return (
@@ -334,19 +351,70 @@ export function Navbar({ navigate, connected, wallet, balance, onConnect, onRefi
         {connected ? (
           <>
             <span className="balance-pill"><b>◎ {formatCast(balance)}</b><small>$CAST</small></span>
-            <AppLink to={`/profile/${wallet}`} navigate={navigate} className="wallet-address">
-              {truncateAddress(wallet)}
-            </AppLink>
-            <button
-              className="nav-refill"
-              onClick={onRefill}
-              disabled={refillLoading}
-              title={refillStatus?.canRefill ? 'Request 100 $CAST daily refill' : 'Daily refill unlocks after 24 hours'}
-            >
-              {refillLoading ? 'Refilling...' : 'Refill 100'}
-            </button>
             <ArciumBadge short />
-            <span className="avatar-dot">{wallet?.slice(0, 2)}</span>
+            <div className="wallet-menu-wrap">
+              <button
+                className={`avatar-dot avatar-button ${walletMenuOpen ? 'active' : ''}`}
+                type="button"
+                aria-expanded={walletMenuOpen}
+                aria-label="Open wallet menu"
+                onClick={() => setWalletMenuOpen((open) => !open)}
+              >
+                {wallet?.slice(0, 2)}
+              </button>
+              <AnimatePresence>
+                {walletMenuOpen && (
+                  <motion.div
+                    className="wallet-menu"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <AppLink
+                      to={`/profile/${wallet}`}
+                      navigate={navigate}
+                      className="wallet-menu-address"
+                      onClick={() => setWalletMenuOpen(false)}
+                    >
+                      {truncateAddress(wallet)}
+                    </AppLink>
+                    <button
+                      className="wallet-menu-action wallet-action"
+                      type="button"
+                      onClick={() => {
+                        onCopyAddress?.();
+                        setWalletMenuOpen(false);
+                      }}
+                    >
+                      Copy address
+                    </button>
+                    <button
+                      className="wallet-menu-action"
+                      type="button"
+                      onClick={() => {
+                        onRefill?.();
+                        setWalletMenuOpen(false);
+                      }}
+                      disabled={refillLoading}
+                      title={refillStatus?.canRefill ? 'Request 100 $CAST daily refill' : 'Daily refill unlocks after 24 hours'}
+                    >
+                      {refillLoading ? 'Refilling...' : 'Refill 100 $CAST'}
+                    </button>
+                    <button
+                      className="wallet-menu-action wallet-disconnect"
+                      type="button"
+                      onClick={() => {
+                        onDisconnect?.();
+                        setWalletMenuOpen(false);
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </>
         ) : (
           <button className="btn btn-secondary" onClick={onConnect}>Connect Wallet</button>
@@ -456,8 +524,8 @@ export function LiveMovers({ markets = [], navigate }) {
               onClick={() => navigate(`/markets/${market.id}`)}
             >
               <span>{market.title}</span>
-              <strong className={market.yes >= 50 ? 'yes' : 'no'}>{Number(market.yes).toFixed(2)}%</strong>
-              <em className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</em>
+              <strong className={market.yes >= 50 ? 'yes' : 'no'}>{formatPercent(market.yes)}%</strong>
+              <em className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{formatPercent(change)}%</em>
             </button>
           );
         })}
@@ -469,7 +537,11 @@ export function LiveMovers({ markets = [], navigate }) {
 function deriveDailyChange(market = {}) {
   const seed = String(market.id || market.title || market.yes || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const magnitude = ((seed % 1900) / 100) - 9.5;
-  return Number(magnitude.toFixed(2));
+  return Number(magnitude.toFixed(1));
+}
+
+function formatPercent(value) {
+  return Number(value || 0).toFixed(1);
 }
 
 function makeSparklinePoints(market = {}) {

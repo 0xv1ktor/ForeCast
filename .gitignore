@@ -13,8 +13,15 @@ target/
 test-ledger/
 ledger/
 
-# Generated Arcium workspace output / nested repo.
-arcium/forecast-mxe/forecast_mxe/
+# Generated Arcium workspace output / nested repo metadata.
+arcium/forecast-mxe/forecast_mxe/.git/
+arcium/forecast-mxe/forecast_mxe/.git.disabled/
+arcium/forecast-mxe/forecast_mxe/node_modules/
+arcium/forecast-mxe/forecast_mxe/target/
+arcium/forecast-mxe/forecast_mxe/build/
+arcium/forecast-mxe/forecast_mxe/artifacts/
+arcium/forecast-mxe/forecast_mxe/.anchor/
+arcium/forecast-mxe/forecast_mxe/test-ledger/
 
 .DS_Store
 Thumbs.db

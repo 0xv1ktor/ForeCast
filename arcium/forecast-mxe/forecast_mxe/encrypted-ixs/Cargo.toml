@@ -1,0 +1,21 @@
+[package]
+name = "encrypted-ixs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arcis = "0.9.7"
+proc-macro2 = { version = "=1.0.106", features = ["proc-macro"] }
+base64ct = "=1.7.3"
+blake3 = "=1.8.2"
+bytemuck = "=1.24.0"
+constant_time_eq = "=0.3.1"
+indexmap = "=2.11.4"
+proc-macro-crate = "=3.3.0"
+toml_edit = "=0.23.10+spec-1.0.0"
+toml_datetime = "=0.7.5"
+toml_parser = "=1.0.6+spec-1.1.0"
+toml_writer = "=1.0.6+spec-1.1.0"
+serde_spanned = "=1.0.4"
+unicode-segmentation = "=1.12.0"
+winnow = "=0.7.14"

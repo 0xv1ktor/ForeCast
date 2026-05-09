@@ -16,6 +16,10 @@ const DEFAULT_FORECAST_PROGRAM_ID = '6LVKicsAfSF9Ba5gZchdxgtP6hEdsQNqAaVZCqHHHz9
 const DEFAULT_FORECAST_CONFIG = '3raFV27qUQMDCS1vrdZFV16XPYh3HsN7Tn7hDaoNtxYx';
 const DEFAULT_CAST_MINT = 'HW7wUzty3SXUC6WVmvfAkot16XxgW14grakSzaSv1BRy';
 const DEFAULT_MINT_AUTHORITY = '4mXVdXXaBaTqEf6gMvg9wifWVoNcKwA71tw1h9pHKHBr';
+const DEFAULT_VAULT_TOKEN_ACCOUNT = '8x8Fj94pvBz2xwxkgYrLpWrqND5tYeag8KGmL1vuyj7H';
+const DEFAULT_ARCIUM_MXE_PROGRAM_ID = '3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK';
+const DEFAULT_ARCIUM_PROGRAM_ID = 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ';
+const CAST_DECIMALS = 6;
 const DAILY_REFILL_SECONDS = 86_400;
 const MAX_MARKET_QUESTION_LENGTH = 180;
 
@@ -35,6 +39,23 @@ const MARKET_TYPE_VARIANTS = {
   'DAO Room Market': 1,
 };
 
+const MARKET_CATEGORY_LABELS = [
+  'Crypto',
+  'Politics',
+  'Sports',
+  'Science',
+  'Technology',
+  'Finance',
+  'World Events',
+  'Other',
+];
+
+const MARKET_TYPE_LABELS = [
+  'native',
+  'native',
+  'polymarket',
+];
+
 export function getForecastRuntimeConfig() {
   return {
     rpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || DEFAULT_RPC_URL,
@@ -42,6 +63,10 @@ export function getForecastRuntimeConfig() {
     forecastConfig: new PublicKey(import.meta.env.VITE_FORECAST_CONFIG || DEFAULT_FORECAST_CONFIG),
     castMint: new PublicKey(import.meta.env.VITE_CAST_MINT || DEFAULT_CAST_MINT),
     mintAuthority: new PublicKey(import.meta.env.VITE_MINT_AUTHORITY || DEFAULT_MINT_AUTHORITY),
+    vaultTokenAccount: new PublicKey(import.meta.env.VITE_VAULT_TOKEN_ACCOUNT || DEFAULT_VAULT_TOKEN_ACCOUNT),
+    arciumMxeProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || DEFAULT_ARCIUM_MXE_PROGRAM_ID),
+    arciumProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_PROGRAM_ID || DEFAULT_ARCIUM_PROGRAM_ID),
+    oddsApiUrl: import.meta.env.VITE_FORECAST_ODDS_API_URL || '',
   };
 }
 
@@ -92,6 +117,43 @@ export async function syncForecastWallet({ walletProvider, onStatus }) {
     claimedInitialNow,
     refill,
   };
+}
+
+function buildArciumSubmitPrivateStakeInstruction({ config, owner, arciumPayload }) {
+  if (!arciumPayload?.queueable) return null;
+
+  const hints = arciumPayload.accountHints || {};
+  const programId = parsePublicKey(arciumPayload.programId) || config.arciumMxeProgramId;
+  const arciumProgram = parsePublicKey(hints.arciumProgram) || config.arciumProgramId;
+  const fields = arciumPayload.ciphertextFields || {};
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: true },
+      { pubkey: requirePublicKey(hints.signPdaAccount, 'Arcium signer PDA'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.mxeAccount, 'Arcium MXE account'), isSigner: false, isWritable: false },
+      { pubkey: requirePublicKey(hints.mempoolAccount, 'Arcium mempool account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.executingPool, 'Arcium executing pool'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.computationAccount, 'Arcium computation account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.compDefAccount, 'Arcium computation definition'), isSigner: false, isWritable: false },
+      { pubkey: requirePublicKey(hints.clusterAccount, 'Arcium cluster account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.poolAccount, 'Arcium fee pool'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.clockAccount, 'Arcium clock account'), isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: arciumProgram, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:submit_private_stake'),
+      bytesFromArray(arciumPayload.computationOffsetLe, 8, 'Arcium computation offset'),
+      bytesFromArray(fields.marketId || arciumPayload.ciphertext?.[0], 32, 'encrypted market id'),
+      bytesFromArray(fields.position || arciumPayload.ciphertext?.[1], 32, 'encrypted position'),
+      bytesFromArray(fields.amount || arciumPayload.ciphertext?.[2], 32, 'encrypted amount'),
+      bytesFromArray(fields.multiplier || arciumPayload.ciphertext?.[3], 32, 'encrypted multiplier'),
+      bytesFromArray(arciumPayload.clientPublicKey, 32, 'Arcium client public key'),
+      writeU128(BigInt(arciumPayload.nonceValue || bytesToBigIntLe(arciumPayload.nonce || []))),
+    ]),
+  });
 }
 
 export async function requestDailyCastRefill(walletProvider) {
@@ -181,6 +243,118 @@ export async function createForecastMarket(walletProvider, marketDraft) {
   };
 }
 
+export async function fetchForecastNativeMarkets() {
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const accounts = await connection.getProgramAccounts(config.programId, {
+    filters: [
+      { dataSize: 8 + 512 },
+    ],
+  });
+
+  return accounts
+    .map(({ pubkey, account }) => decodeMarketAccount(pubkey, account.data))
+    .filter(Boolean)
+    .sort((a, b) => Number(BigInt(b.marketId || 0) - BigInt(a.marketId || 0)));
+}
+
+export async function submitForecastStake(walletProvider, stakeDraft) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect Phantom or Backpack before staking.');
+  }
+
+  const amountRaw = castUiAmountToRaw(stakeDraft.amount);
+  if (amountRaw <= 0n) {
+    throw new Error('Stake amount must be greater than zero.');
+  }
+
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const owner = walletProvider.publicKey;
+  const userCastAccount = getUserCastAccount(config.castMint, owner);
+  const marketRef = getStakeMarketReference(config.programId, stakeDraft.market);
+  const arciumComputation = getArciumComputationReference(config.programId, stakeDraft.arciumPayload, marketRef);
+  const encryptedPayloadHash = hashToBytes(stableJson({
+    arciumPayload: stakeDraft.arciumPayload,
+    market: stakeDraft.market?.id,
+    position: stakeDraft.position,
+    amountRaw: amountRaw.toString(),
+    multiplier: stakeDraft.multiplier,
+  }));
+  const stakeCommitmentHash = hashToBytes(stableJson({
+    owner: owner.toBase58(),
+    market: marketRef.toBase58(),
+    arciumComputation: arciumComputation.toBase58(),
+    encryptedPayloadHash: bytesToHex(encryptedPayloadHash),
+  }));
+  const stakeCommitment = getStakeCommitmentAddress({
+    programId: config.programId,
+    owner,
+    market: marketRef,
+    stakeCommitmentHash,
+  });
+
+  const tx = new Transaction();
+  const arciumQueueInstruction = buildArciumSubmitPrivateStakeInstruction({
+    config,
+    owner,
+    arciumPayload: stakeDraft.arciumPayload,
+  });
+  if (arciumQueueInstruction) {
+    tx.add(arciumQueueInstruction);
+  }
+
+  const userCastInfo = await connection.getAccountInfo(userCastAccount);
+  if (!userCastInfo) {
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        owner,
+        userCastAccount,
+        owner,
+        config.castMint,
+        TOKEN_PROGRAM_ID,
+      ),
+    );
+  }
+
+  tx.add(
+    buildDepositCastInstruction({
+      config,
+      owner,
+      userCastAccount,
+      amountRaw,
+    }),
+    buildRecordPrivateStakeInstruction({
+      config,
+      owner,
+      stakeCommitment,
+      market: marketRef,
+      stakeCommitmentHash,
+      arciumComputation,
+      encryptedPayloadHash,
+    }),
+  );
+
+  const signature = await sendWalletTransaction({ connection, walletProvider, tx });
+  const stakeResult = {
+    signature,
+    balance: await readCastBalance(connection, userCastAccount),
+    market: marketRef.toBase58(),
+    stakeCommitment: stakeCommitment.toBase58(),
+    arciumComputation: arciumComputation.toBase58(),
+    arciumMxeProgramId: config.arciumMxeProgramId.toBase58(),
+    arciumProgramId: config.arciumProgramId.toBase58(),
+    arciumCompDefAccount: stakeDraft.arciumPayload?.accountHints?.compDefAccount || '',
+    arciumClusterAccount: stakeDraft.arciumPayload?.accountHints?.clusterAccount || '',
+    amountRaw: amountRaw.toString(),
+  };
+
+  return {
+    ...stakeResult,
+    oddsUpdate: await requestPublicOddsUpdate(config, stakeDraft, stakeResult),
+  };
+}
+
 export function getInjectedForecastWallet(walletName) {
   if (walletName === 'Backpack') {
     return window.backpack?.solana || window.backpack || null;
@@ -224,6 +398,80 @@ function buildDailyRefillInstruction({ config, owner, userCastAccount, faucetCla
     ],
     data: anchorDiscriminator('global:request_daily_refill'),
   });
+}
+
+function buildDepositCastInstruction({ config, owner, userCastAccount, amountRaw }) {
+  return new TransactionInstruction({
+    programId: config.programId,
+    keys: [
+      { pubkey: config.forecastConfig, isSigner: false, isWritable: true },
+      { pubkey: userCastAccount, isSigner: false, isWritable: true },
+      { pubkey: config.vaultTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:deposit_cast'),
+      writeU64(amountRaw),
+    ]),
+  });
+}
+
+function buildRecordPrivateStakeInstruction({
+  config,
+  owner,
+  stakeCommitment,
+  market,
+  stakeCommitmentHash,
+  arciumComputation,
+  encryptedPayloadHash,
+}) {
+  return new TransactionInstruction({
+    programId: config.programId,
+    keys: [
+      { pubkey: config.forecastConfig, isSigner: false, isWritable: true },
+      { pubkey: stakeCommitment, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:record_private_stake'),
+      market.toBuffer(),
+      Buffer.from(stakeCommitmentHash),
+      arciumComputation.toBuffer(),
+      Buffer.from(encryptedPayloadHash),
+    ]),
+  });
+}
+
+async function requestPublicOddsUpdate(config, stakeDraft, stakeResult) {
+  const marketAddress = parsePublicKey(stakeDraft.market?.marketAddress || stakeDraft.market?.id);
+  if (!config.oddsApiUrl || stakeDraft.market?.type !== 'native' || !marketAddress) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(config.oddsApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        marketAddress: marketAddress.toBase58(),
+        position: stakeDraft.position,
+        amount: Number(stakeDraft.amount || 0),
+        multiplier: 1,
+        arciumComputation: stakeResult.arciumComputation,
+      }),
+    });
+
+    const details = await safeJson(response);
+    if (!response.ok) {
+      return { status: 'failed', error: details?.error || `Odds keeper failed with HTTP ${response.status}` };
+    }
+
+    return details;
+  } catch (error) {
+    return { status: 'failed', error: error.message };
+  }
 }
 
 async function sendWalletTransaction({ connection, walletProvider, tx }) {
@@ -294,6 +542,192 @@ function getMarketAddress(programId, marketIdBytes) {
   )[0];
 }
 
+function getStakeCommitmentAddress({ programId, owner, market, stakeCommitmentHash }) {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('stake'),
+      owner.toBuffer(),
+      market.toBuffer(),
+      Buffer.from(stakeCommitmentHash),
+    ],
+    programId,
+  )[0];
+}
+
+function getStakeMarketReference(programId, market) {
+  const directKey = parsePublicKey(market?.id || market?.marketAddress);
+  if (directKey) return directKey;
+
+  const hash = hashToBytes(`${market?.conditionId || ''}:${market?.id || ''}:${market?.title || ''}`);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('market-ref'), Buffer.from(hash)],
+    programId,
+  )[0];
+}
+
+function getArciumComputationReference(programId, arciumPayload, marketRef) {
+  const computationAccount = parsePublicKey(arciumPayload?.accountHints?.computationAccount);
+  if (computationAccount) return computationAccount;
+
+  const hash = hashToBytes(`${marketRef.toBase58()}:${stableJson(arciumPayload || {})}`);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('arcium-ref'), Buffer.from(hash)],
+    programId,
+  )[0];
+}
+
+function parsePublicKey(value) {
+  if (!value) return null;
+  try {
+    return new PublicKey(value);
+  } catch {
+    return null;
+  }
+}
+
+function requirePublicKey(value, label) {
+  const publicKey = parsePublicKey(value);
+  if (!publicKey) {
+    throw new Error(`${label} is missing from the Arcium stake payload.`);
+  }
+  return publicKey;
+}
+
+function bytesFromArray(value, expectedLength, label) {
+  const bytes = Buffer.from(value || []);
+  if (bytes.length !== expectedLength) {
+    throw new Error(`${label} must be ${expectedLength} bytes.`);
+  }
+  return bytes;
+}
+
+function bytesToBigIntLe(value) {
+  const bytes = value || [];
+  let result = 0n;
+  for (let index = bytes.length - 1; index >= 0; index -= 1) {
+    result = (result << 8n) + BigInt(bytes[index]);
+  }
+  return result;
+}
+
+function decodeMarketAccount(pubkey, data) {
+  const discriminator = anchorDiscriminator('account:Market');
+  const accountDiscriminator = Buffer.from(data.subarray(0, 8));
+  if (!accountDiscriminator.equals(discriminator)) return null;
+
+  try {
+    const reader = createAccountReader(data, 8);
+    const marketId = reader.u64().toString();
+    const creator = reader.pubkey();
+    const question = reader.string();
+    const category = MARKET_CATEGORY_LABELS[reader.u8()] || 'Other';
+    const type = MARKET_TYPE_LABELS[reader.u8()] || 'native';
+    const resolutionTs = Number(reader.i64());
+    reader.bytes(32);
+    reader.optionPubkey();
+    const oracleEnabled = Boolean(reader.u8());
+    const status = reader.u8();
+    const outcomePresent = reader.u8();
+    const outcome = outcomePresent ? reader.u8() : null;
+    const yes = reader.u8();
+    const no = reader.u8();
+    const publicVolume = reader.u64();
+    reader.bytes(64);
+    const arciumComputation = reader.optionPubkey();
+    reader.u8();
+
+    return {
+      id: pubkey.toBase58(),
+      marketAddress: pubkey.toBase58(),
+      marketId,
+      title: question,
+      category,
+      type,
+      source: type === 'polymarket' ? 'Polymarket' : 'Native',
+      yes,
+      no,
+      volume: Number(publicVolume / 1_000_000n),
+      volumeDisplay: `${formatCastAmount(publicVolume)} $CAST`,
+      ends: formatMarketDate(resolutionTs),
+      createdBy: creator,
+      oracleEnabled,
+      status: ['Open', 'Resolved', 'Cancelled'][status] || 'Open',
+      outcome: outcome === null ? null : ['YES', 'NO', 'Cancelled'][outcome],
+      arciumComputation,
+      aggregateStatus: yes === 50 && no === 50 ? 'pending_mpc' : 'onchain',
+      expert: oracleEnabled
+        ? {
+            count: 0,
+            yesLean: 50,
+            text: 'Expert oracle enabled. Encrypted opinions can be submitted after launch.',
+            credentials: ['Crypto'],
+          }
+        : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createAccountReader(data, initialOffset = 0) {
+  let offset = initialOffset;
+  const buffer = Buffer.from(data);
+
+  return {
+    u8() {
+      const value = buffer.readUInt8(offset);
+      offset += 1;
+      return value;
+    },
+    u32() {
+      const value = buffer.readUInt32LE(offset);
+      offset += 4;
+      return value;
+    },
+    u64() {
+      const value = buffer.readBigUInt64LE(offset);
+      offset += 8;
+      return value;
+    },
+    i64() {
+      const value = buffer.readBigInt64LE(offset);
+      offset += 8;
+      return value;
+    },
+    bytes(length) {
+      const value = buffer.subarray(offset, offset + length);
+      offset += length;
+      return value;
+    },
+    pubkey() {
+      return new PublicKey(this.bytes(32)).toBase58();
+    },
+    string() {
+      const length = this.u32();
+      const bytes = this.bytes(length);
+      return new TextDecoder().decode(bytes);
+    },
+    optionPubkey() {
+      const present = this.u8();
+      return present ? this.pubkey() : null;
+    },
+  };
+}
+
+function formatMarketDate(timestamp) {
+  if (!timestamp) return 'TBD';
+  return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatCastAmount(rawAmount) {
+  const whole = Number(rawAmount / 1_000_000n);
+  return whole.toLocaleString('en-US');
+}
+
 function anchorDiscriminator(name) {
   return syncSha256Discriminator(name);
 }
@@ -313,6 +747,35 @@ function formatCountdown(totalSeconds) {
   const minutes = Math.ceil((totalSeconds % 3600) / 60);
   if (hours <= 0) return `${minutes}m`;
   return `${hours}h ${minutes}m`;
+}
+
+function castUiAmountToRaw(value) {
+  const text = String(value ?? '').trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(text)) return 0n;
+  const [whole, fraction = ''] = text.split('.');
+  return BigInt(whole || '0') * 10n ** BigInt(CAST_DECIMALS)
+    + BigInt(fraction.padEnd(CAST_DECIMALS, '0'));
+}
+
+function hashToBytes(value) {
+  return sha256(new TextEncoder().encode(String(value)));
+}
+
+function stableJson(value) {
+  return JSON.stringify(value, (_, item) => {
+    if (typeof item === 'bigint') return item.toString();
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return Object.keys(item).sort().reduce((sorted, key) => {
+        sorted[key] = item[key];
+        return sorted;
+      }, {});
+    }
+    return item;
+  });
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function encodeCreateMarketData({
@@ -373,10 +836,28 @@ function writeU64(value) {
   return bytes;
 }
 
+function writeU128(value) {
+  let next = BigInt(value);
+  const bytes = Buffer.alloc(16);
+  for (let index = 0; index < 16; index += 1) {
+    bytes[index] = Number(next & 0xffn);
+    next >>= 8n;
+  }
+  return bytes;
+}
+
 function writeI64(value) {
   const bytes = Buffer.alloc(8);
   bytes.writeBigInt64LE(BigInt(value));
   return bytes;
+}
+
+async function safeJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 function sha256(message) {

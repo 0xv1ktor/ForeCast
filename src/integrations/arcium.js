@@ -1,5 +1,4 @@
 const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
-const FIELD_MASK = 0x0f;
 
 export function getArciumRuntimeConfig() {
   return {
@@ -7,7 +6,9 @@ export function getArciumRuntimeConfig() {
     stakeApiUrl: import.meta.env.VITE_ARCIUM_STAKE_API_URL || '',
     programId: import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || '',
     clusterOffset: import.meta.env.VITE_ARCIUM_CLUSTER_OFFSET || '',
-    stakeInstruction: import.meta.env.VITE_ARCIUM_STAKE_INSTRUCTION || 'submit_private_stake',
+    stakeInstruction: import.meta.env.VITE_ARCIUM_STAKE_INSTRUCTION || 'submit_private_stake_v2',
+    stakeCircuitUrl: import.meta.env.VITE_ARCIUM_STAKE_CIRCUIT_URL || '',
+    stakeCircuitHash: import.meta.env.VITE_ARCIUM_STAKE_CIRCUIT_HASH || '',
   };
 }
 
@@ -32,21 +33,27 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
     };
   }
 
-  const response = await fetch(config.stakeApiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      walletAddress,
-      market: {
-        id: market?.id,
-        title: market?.title,
-        conditionId: market?.conditionId,
-      },
-      position,
-      amount: Number(amount || 0),
-      multiplier: Number(multiplier || 1),
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(config.stakeApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        walletAddress,
+        market: {
+          id: market?.id,
+          marketAddress: market?.marketAddress,
+          title: market?.title,
+          conditionId: market?.conditionId,
+        },
+        position,
+        amount: Number(amount || 0),
+        multiplier: 1,
+      }),
+    });
+  } catch {
+    throw new Error(`Cannot reach the local Arcium stake service at ${config.stakeApiUrl}. Start it with: node server/arciumStakeService.mjs`);
+  }
 
   if (!response.ok) {
     const details = await safeJson(response);
@@ -63,13 +70,12 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
 export async function buildBrowserStakePreview({ market, position, amount, multiplier }) {
   const seed = `${market?.conditionId || market?.id || ''}:${market?.title || ''}`;
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed)));
-  const fieldBytes = bytes.slice(0, 31);
-  fieldBytes[0] = fieldBytes[0] & FIELD_MASK;
+  const fieldBytes = bytes.slice(0, 16);
   return {
     marketField: bytesToHex(fieldBytes),
     position: position === 'YES' ? 1 : 0,
     amount: Number(amount || 0),
-    multiplier: Number(multiplier || 1),
+    multiplier: 1,
   };
 }
 
