@@ -15,7 +15,16 @@ import {
   SourceBadge,
 } from '../components/Primitives.jsx';
 
-export function MarketDetailPage({ id, markets, balance = 0, connected = false, onConnect, onStake }) {
+export function MarketDetailPage({
+  id,
+  markets,
+  balance = 0,
+  connected = false,
+  wallet = '',
+  onConnect,
+  onStake,
+  onResolveMarket,
+}) {
   const market = markets.find((item) => item.id === id) || markets[0];
   const [position, setPosition] = useState('YES');
   const [amount, setAmount] = useState('250');
@@ -26,6 +35,8 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
   const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [stakeNoticeType, setStakeNoticeType] = useState('success');
   const [activity, setActivity] = useState([]);
+  const [resolutionPhase, setResolutionPhase] = useState('');
+  const [resolutionMessage, setResolutionMessage] = useState('');
 
   if (!market) {
     return (
@@ -48,6 +59,10 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
   const yesPrice = displayPrices.yes;
   const noPrice = displayPrices.no;
   const estimatedShares = quote.shares;
+  const isNativeMarket = market.type === 'native';
+  const isResolved = market.status === 'Resolved' || market.status === 'Cancelled';
+  const isCreator = Boolean(wallet && market.createdBy && wallet === market.createdBy);
+  const canResolveByDate = !market.resolutionTs || Date.now() >= Number(market.resolutionTs) * 1000;
 
   function addAmount(delta) {
     setAmount(String(Math.max(0, Number(amount || 0) + delta)));
@@ -100,6 +115,37 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
       setPhase('');
       setStakeNoticeType('warning');
       setSuccess(error.message || 'Encrypted stake submission failed.');
+    }
+  }
+
+  async function resolveMarket(outcome) {
+    if (!onResolveMarket || resolutionPhase) return;
+    setResolutionMessage('');
+
+    if (!connected) {
+      setResolutionMessage('Connect the market creator wallet before resolving.');
+      onConnect?.();
+      return;
+    }
+
+    if (!isCreator) {
+      setResolutionMessage('Only the wallet that created this market can resolve it.');
+      return;
+    }
+
+    if (!canResolveByDate) {
+      setResolutionMessage(`This market can be resolved after ${market.ends}.`);
+      return;
+    }
+
+    try {
+      setResolutionPhase(`Resolving ${outcome}...`);
+      const result = await onResolveMarket(market, outcome);
+      setResolutionPhase('');
+      setResolutionMessage(`Resolved as ${result.outcome}. Tx ${truncateAddress(result.signature)}.`);
+    } catch (error) {
+      setResolutionPhase('');
+      setResolutionMessage(error.message || 'Market resolution failed.');
     }
   }
 
@@ -201,13 +247,37 @@ export function MarketDetailPage({ id, markets, balance = 0, connected = false, 
             </button>
             {criteriaOpen && (
               <p>
-                MVP resolution is performed by the Forecast authority after checking the stated criteria
-                and source. Creator-only resolution is intentionally avoided unless a dispute window or
-                oracle flow is added. Individual stake data remains private while the final public outcome
-                is posted to Forecast.
+                MVP resolution is performed by the market creator against the stated criteria and source.
+                Individual stake data remains private while the final public outcome is posted to Forecast.
               </p>
             )}
           </section>
+
+          {isNativeMarket && (
+            <section className="criteria-panel resolution-panel">
+              <SectionHeader title="Creator Resolution" text="Only the wallet that created this native market can post the final outcome." />
+              {isResolved ? (
+                <div className="empty-state compact">
+                  Final outcome: {market.outcome || market.status}
+                </div>
+              ) : isCreator ? (
+                <>
+                  <div className="resolution-actions">
+                    <button className="trade-button trade-yes" type="button" onClick={() => resolveMarket('YES')} disabled={Boolean(resolutionPhase) || !canResolveByDate}>Resolve YES</button>
+                    <button className="trade-button trade-no" type="button" onClick={() => resolveMarket('NO')} disabled={Boolean(resolutionPhase) || !canResolveByDate}>Resolve NO</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => resolveMarket('CANCELLED')} disabled={Boolean(resolutionPhase) || !canResolveByDate}>Cancel</button>
+                  </div>
+                  {!canResolveByDate && <p className="subtle">Resolution unlocks after {market.ends}.</p>}
+                  {resolutionPhase && <p className="subtle">{resolutionPhase}</p>}
+                </>
+              ) : (
+                <div className="empty-state compact">
+                  Connected wallet is not the creator of this market.
+                </div>
+              )}
+              {resolutionMessage && <p className="teal-note">{resolutionMessage}</p>}
+            </section>
+          )}
         </div>
 
         <aside className="stake-card order-panel">

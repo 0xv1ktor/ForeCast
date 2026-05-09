@@ -56,6 +56,12 @@ const MARKET_TYPE_LABELS = [
   'polymarket',
 ];
 
+const MARKET_OUTCOME_VARIANTS = {
+  YES: 0,
+  NO: 1,
+  CANCELLED: 2,
+};
+
 export function getForecastRuntimeConfig() {
   return {
     rpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || DEFAULT_RPC_URL,
@@ -355,6 +361,53 @@ export async function submitForecastStake(walletProvider, stakeDraft) {
   };
 }
 
+export async function resolveForecastMarket(walletProvider, market, outcome) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect the creator wallet before resolving a market.');
+  }
+
+  const marketAddress = parsePublicKey(market?.marketAddress || market?.id);
+  if (!marketAddress || market?.type !== 'native') {
+    throw new Error('Only native Forecast markets can be resolved here.');
+  }
+
+  const normalizedOutcome = String(outcome || '').toUpperCase();
+  const outcomeVariant = MARKET_OUTCOME_VARIANTS[normalizedOutcome];
+  if (outcomeVariant === undefined) {
+    throw new Error('Choose YES, NO, or CANCELLED as the resolution outcome.');
+  }
+
+  if (market.createdBy && market.createdBy !== walletProvider.publicKey.toBase58()) {
+    throw new Error('Only the market creator can resolve this market.');
+  }
+
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const tx = new Transaction().add(
+    new TransactionInstruction({
+      programId: config.programId,
+      keys: [
+        { pubkey: config.forecastConfig, isSigner: false, isWritable: false },
+        { pubkey: marketAddress, isSigner: false, isWritable: true },
+        { pubkey: walletProvider.publicKey, isSigner: true, isWritable: false },
+      ],
+      data: Buffer.concat([
+        anchorDiscriminator('global:resolve_market'),
+        Buffer.from([outcomeVariant]),
+      ]),
+    }),
+  );
+
+  const signature = await sendWalletTransaction({ connection, walletProvider, tx });
+
+  return {
+    signature,
+    marketAddress: marketAddress.toBase58(),
+    status: 'Resolved',
+    outcome: normalizedOutcome === 'CANCELLED' ? 'Cancelled' : normalizedOutcome,
+  };
+}
+
 export function getInjectedForecastWallet(walletName) {
   if (walletName === 'Backpack') {
     return window.backpack?.solana || window.backpack || null;
@@ -649,6 +702,7 @@ function decodeMarketAccount(pubkey, data) {
       volume: Number(publicVolume / 1_000_000n),
       volumeDisplay: `${formatCastAmount(publicVolume)} $CAST`,
       ends: formatMarketDate(resolutionTs),
+      resolutionTs,
       createdBy: creator,
       oracleEnabled,
       status: ['Open', 'Resolved', 'Cancelled'][status] || 'Open',

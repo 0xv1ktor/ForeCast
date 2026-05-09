@@ -119,14 +119,18 @@ pub mod forecast {
     }
 
     pub fn resolve_market(ctx: Context<ResolveMarket>, outcome: MarketOutcome) -> Result<()> {
+        let market = &mut ctx.accounts.market;
         require_keys_eq!(
-            ctx.accounts.forecast_config.authority,
+            market.creator,
             ctx.accounts.authority.key(),
             ForecastError::Unauthorized
         );
 
-        let market = &mut ctx.accounts.market;
         require!(market.status == MarketStatus::Open, ForecastError::MarketNotOpen);
+        require!(
+            Clock::get()?.unix_timestamp >= market.resolution_ts,
+            ForecastError::ResolutionTooEarly
+        );
         market.status = MarketStatus::Resolved;
         market.outcome = Some(outcome);
 
@@ -719,12 +723,14 @@ pub struct FaucetClaimed {
 
 #[error_code]
 pub enum ForecastError {
-    #[msg("Only the Forecast authority can perform this action")]
+    #[msg("Signer is not authorized for this action")]
     Unauthorized,
     #[msg("Market question is too long")]
     QuestionTooLong,
     #[msg("Resolution date must be in the future")]
     ResolutionInPast,
+    #[msg("Market cannot be resolved before its resolution date")]
+    ResolutionTooEarly,
     #[msg("Market is not open")]
     MarketNotOpen,
     #[msg("YES and NO odds must sum to 100")]

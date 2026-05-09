@@ -7,6 +7,7 @@ import {
   fetchForecastNativeMarkets,
   getInjectedForecastWallet,
   requestDailyCastRefill,
+  resolveForecastMarket,
   submitForecastStake,
   syncForecastWallet,
 } from './integrations/forecast.js';
@@ -266,6 +267,32 @@ function App() {
     return result;
   }
 
+  async function handleResolveMarket(market, outcome) {
+    if (!walletProvider) {
+      throw new Error('Connect the market creator wallet before resolving.');
+    }
+
+    const result = await resolveForecastMarket(walletProvider, market, outcome);
+    const update = {
+      status: result.status,
+      outcome: result.outcome,
+      resolutionSignature: result.signature,
+    };
+
+    setCreatedMarkets((items) => {
+      const next = items.map((item) => (
+        getMarketKey(item) === getMarketKey(market) ? { ...item, ...update } : item
+      ));
+      cacheCreatedMarkets(next);
+      return next;
+    });
+    setOnchainMarkets((items) => items.map((item) => (
+      getMarketKey(item) === getMarketKey(market) ? { ...item, ...update } : item
+    )));
+    showToast(`Market resolved as ${result.outcome}.`);
+    return result;
+  }
+
   const appMarkets = useMemo(() => {
     const nativeMarkets = markets.filter((market) => market.type === 'native');
     const polymarketMarkets = livePolymarkets.length
@@ -285,7 +312,7 @@ function App() {
   const route = useMemo(() => {
     if (path === '/') return <LandingPage navigate={navigate} markets={appMarkets} />;
     if (path === '/markets') return <MarketsPage navigate={navigate} markets={appMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
-    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} onConnect={beginConnect} onStake={handleSubmitStake} />;
+    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} wallet={wallet} onConnect={beginConnect} onStake={handleSubmitStake} onResolveMarket={handleResolveMarket} />;
     if (path === '/create') return <CreateMarketPage connected={connected} walletProvider={walletProvider} onConnect={beginConnect} onCreateMarket={handleCreateMarket} />;
     if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || '')} balance={balance} connected={connected} />;
     if (path === '/rooms') return <RoomsPage navigate={navigate} />;
@@ -360,6 +387,7 @@ function buildCreatedMarketCard({ result, marketDraft }) {
     volumeDisplay: seedOdds?.volumeDisplay ?? '0 $CAST',
     aggregateStatus: seedOdds?.aggregateStatus,
     ends,
+    resolutionTs: result.resolutionTs,
     createdBy: result.creator,
     signature: result.signature,
     expert: marketDraft.oracleEnabled

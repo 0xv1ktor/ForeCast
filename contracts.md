@@ -171,3 +171,9 @@ POST /odds/update
 After an encrypted stake confirms, the frontend calls this keeper for real Forecast-native market accounts. The keeper signs `update_public_odds` with `FORECAST_ODDS_KEEPER_KEYPAIR_PATH` and writes the new public YES/NO aggregate to the Forecast program, so refreshes load moved odds from devnet instead of returning to `50/50`.
 
 This is an MVP bridge until the full Arcium aggregate flow is wired end-to-end. The private stake commitment remains separate; the public update only writes aggregate percentages and volume. `node server/arciumStakeService.mjs` still works as an optional standalone fallback, but `npm run dev` is the normal local workflow.
+
+## Resolution Model
+
+For the MVP, each native Forecast market is resolved by the wallet that created it after the resolution date. The creator must use the resolution criteria they wrote when creating the market. This keeps the demo flow simple and lets anyone create and finalize their own market without giving them early-resolution power.
+
+Longer term, creator resolution should be paired with a dispute window, DAO room governance, or an oracle flow before settlement is considered production-grade.

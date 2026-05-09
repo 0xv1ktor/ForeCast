@@ -1533,7 +1533,7 @@ main {
   padding: 0;
 }
 
-.criteria-panel button {
+.criteria-panel > button {
   display: flex;
   justify-content: space-between;
   width: 100%;
@@ -1550,6 +1550,22 @@ main {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.resolution-panel {
+  padding: 16px;
+}
+
+.resolution-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.resolution-actions .btn,
+.resolution-actions .trade-button {
+  width: 100%;
 }
 
 .create-form {

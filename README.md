@@ -43,6 +43,12 @@ Build for production:
 npm run build
 ```
 
+Serve the production build and API routes from one Node process:
+
+```bash
+npm start
+```
+
 Local app URL:
 
 ```text
@@ -53,19 +59,19 @@ http://localhost:5173/
 
 1. Open the landing page and point out the Arcium privacy positioning.
 2. Click **Browse Markets** and show Native vs Polymarket Event tabs.
-3. Open the Bitcoin market detail page.
+3. Open a live market detail page or create a native Forecast market.
 4. Choose YES or NO, enter a $CAST amount, and submit.
 5. Show the Arcium flow: preparing stake, encrypted MPC computation, Solana submission, success state, and Explorer links.
-6. Show recent activity where amounts and wallets are hidden.
-7. Open **Rooms** to show DAO private markets and permissioned Arcium clusters.
-8. Open **Leaderboard** to show public accuracy rankings with private participation counts.
+6. Show recent activity where amounts and wallets are hidden after a stake is submitted.
+7. Open **Rooms** to show DAO private room shells and permissioned Arcium cluster positioning.
+8. Open **Leaderboard** to show the pending public reputation aggregate state.
 9. Use **Connect Wallet** with Phantom or Backpack to claim/sync the 1,000 $CAST faucet.
 
 ## Routes
 
 - `/` - Landing page
 - `/markets` - Market browser with search, category filters, source tabs, and sorting
-- `/markets/:id` - Interactive market detail and conviction staking flow
+- `/markets/:id` - Interactive market detail and encrypted stake flow
 - `/create` - Create market form with expert oracle and seed stake options
 - `/profile/:address` - Public profile with private activity and reputation badge
 - `/rooms` - DAO rooms list and create room modal
@@ -100,7 +106,7 @@ The devnet integration layer is active:
 - Arcium client SDK stake payload preparation behind environment config
 - Faucet contract source supports 1,000 initial $CAST plus 100 $CAST per day refill
 - Private stake commitment records and public aggregate odds update bridge
-- MVP market resolution by Forecast authority against each market's criteria
+- MVP market resolution by the creator wallet after the resolution date, against each market's criteria
 - Expert oracle, settlement, reputation, and room leaderboards remain future Arcium circuits
 
 ## Real Integration Config
@@ -128,6 +134,15 @@ The Arcium SDK runs in the Node/Vite server boundary because the package depends
 ```bash
 npm run dev
 ```
+
+For production-style local serving, build first and then run the single Node server:
+
+```bash
+npm run build
+npm start
+```
+
+`npm start` serves `dist/` plus `POST /stake` and `POST /odds/update` from the same process.
 
 ## Integration Targets
 

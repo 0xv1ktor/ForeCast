@@ -1,8 +1,9 @@
 import http from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import BN from 'bn.js';
 import {
@@ -42,6 +43,19 @@ const FORECAST_PROGRAM_ID = process.env.FORECAST_PROGRAM_ID || process.env.VITE_
 const FORECAST_CONFIG = process.env.FORECAST_CONFIG || process.env.VITE_FORECAST_CONFIG || '';
 const ODDS_KEEPER_KEYPAIR_PATH = process.env.FORECAST_ODDS_KEEPER_KEYPAIR_PATH || '~/.config/solana/id.json';
 const CAST_DECIMALS = 6n;
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(MODULE_DIR, '..');
+const DIST_DIR = resolve(PROJECT_ROOT, 'dist');
+const MIME_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+};
 
 export function createForecastApiHandler() {
   return async function forecastApiHandler(req, res, next) {
@@ -82,10 +96,22 @@ export function createForecastApiHandler() {
   };
 }
 
+export function createForecastAppHandler() {
+  const apiHandler = createForecastApiHandler();
+
+  return function forecastAppHandler(req, res) {
+    apiHandler(req, res, () => serveFrontend(req, res));
+  };
+}
+
 export function startForecastApiServer(port = PORT) {
-  const server = http.createServer(createForecastApiHandler());
+  const server = http.createServer(createForecastAppHandler());
   server.listen(port, () => {
-    console.log(`Forecast Arcium service listening on http://localhost:${port}/stake and /odds/update`);
+    const frontendStatus = existsSync(resolve(DIST_DIR, 'index.html'))
+      ? `serving ${DIST_DIR}`
+      : 'dist/ not found; run npm run build before production serving';
+    console.log(`Forecast server listening on http://localhost:${port} (${frontendStatus})`);
+    console.log(`API routes: http://localhost:${port}/stake and /odds/update`);
   });
   return server;
 }
@@ -389,6 +415,49 @@ function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function serveFrontend(req, res) {
+  if (!['GET', 'HEAD'].includes(req.method || 'GET')) {
+    sendText(res, 405, 'Method not allowed');
+    return;
+  }
+
+  if (!existsSync(resolve(DIST_DIR, 'index.html'))) {
+    sendText(res, 503, 'Forecast frontend build not found. Run npm run build first.');
+    return;
+  }
+
+  const url = new URL(req.url || '/', 'http://forecast.local');
+  const route = decodeURIComponent(url.pathname);
+  const candidatePath = resolve(DIST_DIR, `.${route}`);
+  const isSafePath = candidatePath === DIST_DIR || candidatePath.startsWith(`${DIST_DIR}/`);
+  if (!isSafePath) {
+    sendText(res, 403, 'Forbidden');
+    return;
+  }
+
+  const shouldServeAsset = route !== '/' && existsSync(candidatePath) && statSync(candidatePath).isFile();
+  const filePath = shouldServeAsset ? candidatePath : resolve(DIST_DIR, 'index.html');
+  const mimeType = MIME_TYPES[extname(filePath)] || 'application/octet-stream';
+  const body = readFileSync(filePath);
+
+  res.writeHead(200, {
+    'Content-Type': mimeType,
+    'Cache-Control': shouldServeAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+  });
+
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+
+  res.end(body);
+}
+
+function sendText(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(body);
 }
 
 function bytesToHex(bytes) {
