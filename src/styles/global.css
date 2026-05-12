@@ -28,6 +28,7 @@ html,
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: 'DM Mono', 'Courier New', monospace;
@@ -2607,7 +2608,7 @@ textarea {
 
 @media (max-width: 768px) {
   main {
-    padding-bottom: 64px;
+    padding-bottom: 76px;
   }
 
   .navbar {
@@ -2622,25 +2623,58 @@ textarea {
     border-bottom: 0;
   }
 
-  .logo,
-  .wallet-zone {
+  .logo {
     display: none;
   }
 
+  .wallet-zone {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 70;
+    display: flex;
+    min-width: 0;
+  }
+
+  .wallet-zone .balance-pill,
+  .wallet-zone .arcium-badge {
+    display: none;
+  }
+
+  .wallet-zone .btn-secondary {
+    min-height: 34px;
+    padding: 7px 10px;
+    background: var(--bg-surface);
+    font-size: 12px;
+  }
+
+  .wallet-menu {
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(220px, calc(100vw - 20px));
+  }
+
   .nav-links {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
     width: 100%;
-    justify-content: space-around;
+    justify-content: stretch;
   }
 
   .nav-links a,
   .nav-links button {
     display: grid;
     place-items: center;
-    min-width: 60px;
+    width: 100%;
+    min-width: 0;
     min-height: 42px;
-    padding: 6px 8px;
+    padding: 6px 4px;
     border-radius: 6px;
-    font-size: 11px;
+    font-size: 10px;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
   }
 
   .page,
@@ -2652,9 +2686,25 @@ textarea {
     width: min(100% - 20px, var(--max-width));
   }
 
+  .page {
+    padding-top: 56px;
+  }
+
   .terminal-hero {
     min-height: auto;
     padding-top: 28px;
+  }
+
+  .hero-actions,
+  .page-header .btn,
+  .section-header .btn {
+    width: 100%;
+  }
+
+  .hero-actions .btn,
+  .page-header .btn,
+  .section-header .btn {
+    justify-content: center;
   }
 
   .terminal-hero h1,
@@ -2667,6 +2717,19 @@ textarea {
 
   .probability-large strong {
     font-size: 42px;
+  }
+
+  .detail-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .detail-main {
+    order: 2;
+  }
+
+  .order-panel {
+    order: 1;
   }
 
   .stats-bar,
@@ -2701,6 +2764,80 @@ textarea {
     display: grid;
   }
 
+  .markets-sidebar {
+    display: none;
+  }
+
+  .market-facts,
+  .card-topline {
+    gap: 8px;
+  }
+
+  .category-strip,
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .category-strip button,
+  .tabs button {
+    flex: 0 0 auto;
+  }
+
+  .stake-card,
+  .filter-panel,
+  .create-form,
+  .criteria-panel,
+  .odds-panel,
+  .history-panel,
+  .activity-panel {
+    padding: 14px;
+  }
+
+  .outcome-price-grid {
+    gap: 8px;
+  }
+
+  .trade-amount-row {
+    margin-top: 18px;
+  }
+
+  .trade-amount-row strong {
+    font-size: 25px;
+  }
+
+  .trade-increments {
+    justify-content: flex-start;
+  }
+
+  .payout-preview div,
+  .trade-summary div {
+    align-items: flex-start;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .modal,
+  .how-modal {
+    width: 100%;
+    max-height: calc(100vh - 20px);
+    overflow: auto;
+  }
+
+  .how-slide {
+    min-height: auto;
+    padding: 14px;
+  }
+
+  .how-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
   .hero-trade-buttons {
     position: sticky;
     bottom: 68px;
@@ -2723,5 +2860,63 @@ textarea {
   .footer {
     grid-template-columns: 1fr;
     padding-bottom: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-links a,
+  .nav-links button {
+    min-height: 40px;
+    padding: 5px 2px;
+    font-size: 9px;
+  }
+
+  .page,
+  .page-section,
+  .markets-dashboard,
+  .stats-bar,
+  .terminal-hero,
+  .footer {
+    width: min(100% - 16px, var(--max-width));
+  }
+
+  .terminal-hero h1,
+  .page-header h1,
+  .detail-top h1,
+  .profile-header h1,
+  .room-detail-header h1 {
+    font-size: 20px;
+  }
+
+  .probability-large strong {
+    font-size: 36px;
+  }
+
+  .stat strong {
+    font-size: 22px;
+  }
+
+  .outcome-price-grid {
+    gap: 7px;
+  }
+
+  .outcome-price-grid button {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  .trade-amount-row strong {
+    font-size: 22px;
+  }
+
+  .modal-header {
+    align-items: center;
+    gap: 10px;
+  }
+
+  .how-slide p,
+  .how-points div,
+  .how-arcium {
+    font-size: 13px;
   }
 }
