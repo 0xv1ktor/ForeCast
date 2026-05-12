@@ -118,11 +118,37 @@ main {
   line-height: 1;
 }
 
-.logo span {
-  width: 7px;
-  height: 7px;
-  border-radius: 100px;
-  background: var(--yes-strong);
+.forecast-logo-mark {
+  width: 26px;
+  height: 26px;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+.forecast-logo-mark rect {
+  fill: var(--bg-raised);
+  stroke: var(--border-hover);
+  stroke-width: 1;
+}
+
+.forecast-logo-mark .logo-f {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.forecast-logo-mark .logo-signal {
+  fill: none;
+  stroke: var(--yes-strong);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.forecast-logo-mark .logo-dot {
+  fill: var(--info);
 }
 
 .nav-links {

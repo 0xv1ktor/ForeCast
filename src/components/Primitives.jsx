@@ -33,6 +33,22 @@ export function ArciumBadge({ short = false, permissioned = false }) {
   );
 }
 
+export function ForecastLogoMark() {
+  return (
+    <svg
+      className="forecast-logo-mark"
+      viewBox="0 0 32 32"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="3.5" y="3.5" width="25" height="25" rx="7" />
+      <path className="logo-f" d="M10 22V10h13M10 16h9" />
+      <path className="logo-signal" d="M10 22l4.6-4.7 4 2.7L23 12" />
+      <circle className="logo-dot" cx="23" cy="12" r="1.7" />
+    </svg>
+  );
+}
+
 export function LockIcon({ className = '' }) {
   return (
     <svg
@@ -356,7 +372,7 @@ export function Navbar({
 
   return (
     <nav className="navbar">
-      <AppLink to="/" navigate={navigate} className="logo"><span />ForeCast</AppLink>
+      <AppLink to="/" navigate={navigate} className="logo"><ForecastLogoMark />ForeCast</AppLink>
       <div className="nav-links">
         <AppLink to="/markets" navigate={navigate}>Markets</AppLink>
         <AppLink to={portfolioPath} navigate={navigate}>Portfolio</AppLink>
@@ -611,7 +627,7 @@ export function Footer({ navigate }) {
   return (
     <footer className="footer">
       <div>
-        <button className="footer-logo" onClick={() => navigate('/')}>ForeCast</button>
+        <button className="footer-logo" onClick={() => navigate('/')}><ForecastLogoMark />ForeCast</button>
         <p>The market knows.</p>
       </div>
       <div className="footer-links">
