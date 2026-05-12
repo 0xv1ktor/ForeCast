@@ -3,6 +3,9 @@ import {
   createAssociatedTokenAccountInstruction,
   createInitializeMintInstruction,
   createInitializeAccountInstruction,
+  createSetAuthorityInstruction,
+  AuthorityType,
+  getAccount,
   getAssociatedTokenAddressSync,
   getMinimumBalanceForRentExemptAccount,
   MINT_SIZE,
@@ -51,6 +54,7 @@ const userCastAccount = getAssociatedTokenAddressSync(
 await ensureMint(castMint);
 await ensureAssociatedTokenAccount(userCastAccount, castMint.publicKey || castMint);
 await ensureVaultTokenAccount(vaultTokenAccount, castMint.publicKey || castMint);
+await ensureVaultAuthority(vaultTokenAccount.publicKey || vaultTokenAccount);
 await initializeForecast(castMint.publicKey || castMint, vaultTokenAccount.publicKey || vaultTokenAccount);
 
 const output = {
@@ -143,6 +147,31 @@ async function ensureVaultTokenAccount(vault, mint) {
 
   await provider.sendAndConfirm(tx, [vault]);
   console.log(`Created vault token account ${vault.publicKey.toBase58()}`);
+}
+
+async function ensureVaultAuthority(vault) {
+  const vaultInfo = await getAccount(connection, vault, 'confirmed', TOKEN_PROGRAM_ID);
+  if (vaultInfo.owner.equals(forecastConfig)) return;
+
+  if (!vaultInfo.owner.equals(wallet.publicKey)) {
+    throw new Error(
+      `Vault owner is ${vaultInfo.owner.toBase58()}, not ${wallet.publicKey.toBase58()} or forecast config PDA. ` +
+      'Set the vault owner to the forecast config PDA before creator payouts can work.',
+    );
+  }
+
+  const tx = new Transaction().add(
+    createSetAuthorityInstruction(
+      vault,
+      wallet.publicKey,
+      AuthorityType.AccountOwner,
+      forecastConfig,
+      [],
+      TOKEN_PROGRAM_ID,
+    ),
+  );
+  await provider.sendAndConfirm(tx);
+  console.log(`Set vault owner authority to Forecast config PDA ${forecastConfig.toBase58()}`);
 }
 
 async function initializeForecast(mint, vault) {

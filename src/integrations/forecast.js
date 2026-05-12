@@ -73,6 +73,9 @@ export function getForecastRuntimeConfig() {
     arciumMxeProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || DEFAULT_ARCIUM_MXE_PROGRAM_ID),
     arciumProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_PROGRAM_ID || DEFAULT_ARCIUM_PROGRAM_ID),
     oddsApiUrl: import.meta.env.VITE_FORECAST_ODDS_API_URL || '',
+    arciumStakeApiUrl: import.meta.env.VITE_ARCIUM_STAKE_API_URL || '',
+    arciumSettlementApiUrl: import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL
+      || deriveSiblingApiUrl(import.meta.env.VITE_ARCIUM_STAKE_API_URL || '', '/settlement'),
   };
 }
 
@@ -157,6 +160,43 @@ function buildArciumSubmitPrivateStakeInstruction({ config, owner, arciumPayload
       bytesFromArray(fields.amount || arciumPayload.ciphertext?.[2], 32, 'encrypted amount'),
       bytesFromArray(fields.multiplier || arciumPayload.ciphertext?.[3], 32, 'encrypted multiplier'),
       bytesFromArray(arciumPayload.clientPublicKey, 32, 'Arcium client public key'),
+      writeU128(BigInt(arciumPayload.nonceValue || bytesToBigIntLe(arciumPayload.nonce || []))),
+    ]),
+  });
+}
+
+function buildArciumComputePrivateSettlementInstruction({ config, owner, arciumPayload }) {
+  if (!arciumPayload?.queueable) return null;
+
+  const hints = arciumPayload.accountHints || {};
+  const programId = parsePublicKey(arciumPayload.programId) || config.arciumMxeProgramId;
+  const arciumProgram = parsePublicKey(hints.arciumProgram) || config.arciumProgramId;
+  const fields = arciumPayload.ciphertextFields || {};
+
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: true },
+      { pubkey: requirePublicKey(hints.signPdaAccount, 'Arcium signer PDA'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.mxeAccount, 'Arcium MXE account'), isSigner: false, isWritable: false },
+      { pubkey: requirePublicKey(hints.mempoolAccount, 'Arcium mempool account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.executingPool, 'Arcium executing pool'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.computationAccount, 'Arcium computation account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.compDefAccount, 'Arcium computation definition'), isSigner: false, isWritable: false },
+      { pubkey: requirePublicKey(hints.clusterAccount, 'Arcium cluster account'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.poolAccount, 'Arcium fee pool'), isSigner: false, isWritable: true },
+      { pubkey: requirePublicKey(hints.clockAccount, 'Arcium clock account'), isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: arciumProgram, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:compute_private_settlement'),
+      bytesFromArray(arciumPayload.computationOffsetLe, 8, 'Arcium settlement computation offset'),
+      bytesFromArray(fields.userPosition || arciumPayload.ciphertext?.[0], 32, 'encrypted user position'),
+      bytesFromArray(fields.winningPosition || arciumPayload.ciphertext?.[1], 32, 'encrypted winning position'),
+      bytesFromArray(fields.amount || arciumPayload.ciphertext?.[2], 32, 'encrypted settlement amount'),
+      bytesFromArray(fields.multiplier || arciumPayload.ciphertext?.[3], 32, 'encrypted settlement multiplier'),
+      bytesFromArray(arciumPayload.clientPublicKey, 32, 'Arcium settlement client public key'),
       writeU128(BigInt(arciumPayload.nonceValue || bytesToBigIntLe(arciumPayload.nonce || []))),
     ]),
   });
@@ -357,6 +397,7 @@ export async function submitForecastStake(walletProvider, stakeDraft) {
 
   return {
     ...stakeResult,
+    settlementRegistration: await requestSettlementRegistration(config, stakeDraft, stakeResult),
     oddsUpdate: await requestPublicOddsUpdate(config, stakeDraft, stakeResult),
   };
 }
@@ -405,6 +446,218 @@ export async function resolveForecastMarket(walletProvider, market, outcome) {
     marketAddress: marketAddress.toBase58(),
     status: 'Resolved',
     outcome: normalizedOutcome === 'CANCELLED' ? 'Cancelled' : normalizedOutcome,
+  };
+}
+
+export async function fetchUserStakeCommitments(walletProvider, market) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect Phantom or Backpack before checking settlement.');
+  }
+
+  const marketAddress = parsePublicKey(market?.marketAddress || market?.id);
+  if (!marketAddress || market?.type !== 'native') {
+    return [];
+  }
+
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const owner = walletProvider.publicKey.toBase58();
+  const accounts = await connection.getProgramAccounts(config.programId, {
+    filters: [
+      { dataSize: 8 + 256 },
+    ],
+  });
+
+  return accounts
+    .map(({ pubkey, account }) => decodeStakeCommitmentAccount(pubkey, account.data))
+    .filter((item) => item && item.user === owner && item.market === marketAddress.toBase58())
+    .sort((a, b) => Number(b.createdAt - a.createdAt));
+}
+
+export async function fetchMarketStakeCommitments(walletProvider, market) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect the market creator wallet before loading settlement commitments.');
+  }
+
+  const marketAddress = parsePublicKey(market?.marketAddress || market?.id);
+  if (!marketAddress || market?.type !== 'native') {
+    return [];
+  }
+
+  if (market.createdBy && market.createdBy !== walletProvider.publicKey.toBase58()) {
+    throw new Error('Only the market creator can load author settlement controls.');
+  }
+
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const accounts = await connection.getProgramAccounts(config.programId, {
+    filters: [
+      { dataSize: 8 + 256 },
+    ],
+  });
+
+  return accounts
+    .map(({ pubkey, account }) => decodeStakeCommitmentAccount(pubkey, account.data))
+    .filter((item) => item && item.market === marketAddress.toBase58())
+    .sort((a, b) => Number(b.createdAt - a.createdAt));
+}
+
+export async function queueArciumSettlement(walletProvider, { market, stakeCommitment }) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect the market creator wallet before running Arcium settlement.');
+  }
+
+  const marketAddress = parsePublicKey(market?.marketAddress || market?.id);
+  const stakeCommitmentAddress = parsePublicKey(stakeCommitment?.address);
+  if (!marketAddress || market?.type !== 'native') {
+    throw new Error('Only native Forecast markets can run Arcium settlement here.');
+  }
+  if (market.createdBy && market.createdBy !== walletProvider.publicKey.toBase58()) {
+    throw new Error('Only the market creator can run settlement.');
+  }
+  if (!stakeCommitmentAddress) {
+    throw new Error('Stake commitment is missing.');
+  }
+  if (!['YES', 'NO'].includes(String(market.outcome || '').toUpperCase())) {
+    throw new Error('Resolve the market as YES or NO before running settlement.');
+  }
+
+  const config = getForecastRuntimeConfig();
+  if (!config.arciumSettlementApiUrl) {
+    throw new Error('Set VITE_ARCIUM_SETTLEMENT_API_URL or VITE_ARCIUM_STAKE_API_URL to enable Arcium settlement.');
+  }
+
+  const response = await fetch(config.arciumSettlementApiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      walletAddress: walletProvider.publicKey.toBase58(),
+      marketAddress: marketAddress.toBase58(),
+      market: {
+        marketAddress: marketAddress.toBase58(),
+        yes: Number(market.yes || 50),
+        no: Number(market.no || 50),
+        volume: Number(market.volume || 0),
+        volumeDisplay: market.volumeDisplay || '',
+      },
+      outcome: market.outcome,
+      stakeCommitment: stakeCommitmentAddress.toBase58(),
+    }),
+  });
+  const payload = await safeJson(response);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Arcium settlement service failed with HTTP ${response.status}`);
+  }
+
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const settlementIx = buildArciumComputePrivateSettlementInstruction({
+    config,
+    owner: walletProvider.publicKey,
+    arciumPayload: payload,
+  });
+  if (!settlementIx) {
+    throw new Error('Arcium settlement payload is not queueable.');
+  }
+  const tx = new Transaction().add(settlementIx);
+  const signature = await sendWalletTransaction({ connection, walletProvider, tx });
+
+  return {
+    ...payload,
+    signature,
+    arciumComputation: payload.accountHints?.computationAccount || '',
+    arciumMxeProgramId: config.arciumMxeProgramId.toBase58(),
+    arciumProgramId: config.arciumProgramId.toBase58(),
+    arciumCompDefAccount: payload.accountHints?.compDefAccount || '',
+    statusLabel: 'Payout Computation Queued',
+  };
+}
+
+export async function settleAndPayStake(walletProvider, { market, stakeCommitment, settlementPayload }) {
+  if (!walletProvider?.publicKey) {
+    throw new Error('Connect the market creator wallet before settling payout.');
+  }
+
+  const marketAddress = parsePublicKey(market?.marketAddress || market?.id);
+  const stakeCommitmentAddress = parsePublicKey(stakeCommitment?.address);
+  const stakeUser = parsePublicKey(stakeCommitment?.user);
+  const arciumComputation = parsePublicKey(settlementPayload?.arciumComputation || settlementPayload?.accountHints?.computationAccount);
+
+  if (!marketAddress || market?.type !== 'native') {
+    throw new Error('Only native Forecast markets can be settled here.');
+  }
+
+  if (market.createdBy && market.createdBy !== walletProvider.publicKey.toBase58()) {
+    throw new Error('Only the market creator can settle payouts.');
+  }
+
+  if (!stakeCommitmentAddress || !stakeUser || !arciumComputation) {
+    throw new Error('Stake commitment is missing required Arcium settlement accounts.');
+  }
+
+  if (!settlementPayload?.signature) {
+    throw new Error('Compute the private payout before paying this commitment.');
+  }
+
+  const claimAmountRaw = settlementPayload.claimAmountRaw !== undefined
+    ? BigInt(settlementPayload.claimAmountRaw)
+    : castUiAmountToRaw(settlementPayload.claimAmount || 0);
+
+  const config = getForecastRuntimeConfig();
+  const connection = new Connection(config.rpcUrl, 'confirmed');
+  const userCastAccount = getUserCastAccount(config.castMint, stakeUser);
+  const encryptedPayoutHash = hashToBytes(stableJson({
+    market: marketAddress.toBase58(),
+    stakeCommitment: stakeCommitmentAddress.toBase58(),
+    user: stakeUser.toBase58(),
+    outcome: market.outcome || market.status,
+    claimAmountRaw: claimAmountRaw.toString(),
+    settlementInputHash: settlementPayload.settlementInputHash || '',
+    settlementSignature: settlementPayload.signature,
+    arciumComputation: arciumComputation.toBase58(),
+  }));
+
+  const tx = new Transaction();
+  const userCastInfo = await connection.getAccountInfo(userCastAccount);
+  if (!userCastInfo) {
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        walletProvider.publicKey,
+        userCastAccount,
+        stakeUser,
+        config.castMint,
+        TOKEN_PROGRAM_ID,
+      ),
+    );
+  }
+
+  tx.add(
+    buildMarkSettlementReadyInstruction({
+      config,
+      market: marketAddress,
+      stakeCommitment: stakeCommitmentAddress,
+      authority: walletProvider.publicKey,
+      encryptedPayoutHash,
+      arciumComputation,
+    }),
+    buildMarkClaimedInstruction({
+      config,
+      market: marketAddress,
+      stakeCommitment: stakeCommitmentAddress,
+      userCastAccount,
+      authority: walletProvider.publicKey,
+      claimAmountRaw,
+    }),
+  );
+
+  const signature = await sendWalletTransaction({ connection, walletProvider, tx });
+
+  return {
+    signature,
+    claimAmountRaw: claimAmountRaw.toString(),
+    userCastAccount: userCastAccount.toBase58(),
+    stakeCommitment: stakeCommitmentAddress.toBase58(),
+    status: 2,
+    statusLabel: 'Claim Recorded',
   };
 }
 
@@ -497,6 +750,83 @@ function buildRecordPrivateStakeInstruction({
   });
 }
 
+function buildMarkSettlementReadyInstruction({
+  config,
+  market,
+  stakeCommitment,
+  authority,
+  encryptedPayoutHash,
+  arciumComputation,
+}) {
+  return new TransactionInstruction({
+    programId: config.programId,
+    keys: [
+      { pubkey: config.forecastConfig, isSigner: false, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: false },
+      { pubkey: stakeCommitment, isSigner: false, isWritable: true },
+      { pubkey: authority, isSigner: true, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:mark_settlement_ready'),
+      Buffer.from(encryptedPayoutHash),
+      arciumComputation.toBuffer(),
+    ]),
+  });
+}
+
+function buildMarkClaimedInstruction({
+  config,
+  market,
+  stakeCommitment,
+  userCastAccount,
+  authority,
+  claimAmountRaw,
+}) {
+  return new TransactionInstruction({
+    programId: config.programId,
+    keys: [
+      { pubkey: config.forecastConfig, isSigner: false, isWritable: true },
+      { pubkey: market, isSigner: false, isWritable: false },
+      { pubkey: stakeCommitment, isSigner: false, isWritable: true },
+      { pubkey: config.vaultTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: userCastAccount, isSigner: false, isWritable: true },
+      { pubkey: authority, isSigner: true, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      anchorDiscriminator('global:mark_claimed'),
+      writeU64(claimAmountRaw),
+    ]),
+  });
+}
+
+async function requestSettlementRegistration(config, stakeDraft, stakeResult) {
+  const settlementCacheKey = stakeDraft.arciumPayload?.settlementCacheKey;
+  if (!config.arciumStakeApiUrl || !settlementCacheKey || !stakeResult.stakeCommitment) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(deriveSiblingApiUrl(config.arciumStakeApiUrl, '/settlement/register'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settlementCacheKey,
+        stakeCommitment: stakeResult.stakeCommitment,
+        marketAddress: stakeResult.market,
+        owner: stakeDraft.arciumPayload?.walletAddress,
+      }),
+    });
+    const details = await safeJson(response);
+    if (!response.ok) {
+      return { status: 'failed', error: details?.error || `Settlement registration failed with HTTP ${response.status}` };
+    }
+    return details;
+  } catch (error) {
+    return { status: 'failed', error: error.message };
+  }
+}
+
 async function requestPublicOddsUpdate(config, stakeDraft, stakeResult) {
   const marketAddress = parsePublicKey(stakeDraft.market?.marketAddress || stakeDraft.market?.id);
   if (!config.oddsApiUrl || stakeDraft.market?.type !== 'native' || !marketAddress) {
@@ -524,6 +854,21 @@ async function requestPublicOddsUpdate(config, stakeDraft, stakeResult) {
     return details;
   } catch (error) {
     return { status: 'failed', error: error.message };
+  }
+}
+
+function deriveSiblingApiUrl(url, siblingPath) {
+  if (!url) return '';
+  if (url.startsWith('/')) return siblingPath;
+
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = siblingPath;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return siblingPath;
   }
 }
 
@@ -723,6 +1068,42 @@ function decodeMarketAccount(pubkey, data) {
   }
 }
 
+function decodeStakeCommitmentAccount(pubkey, data) {
+  const discriminator = anchorDiscriminator('account:StakeCommitment');
+  const accountDiscriminator = Buffer.from(data.subarray(0, 8));
+  if (!accountDiscriminator.equals(discriminator)) return null;
+
+  try {
+    const reader = createAccountReader(data, 8);
+    const user = reader.pubkey();
+    const market = reader.pubkey();
+    const stakeCommitmentHash = reader.bytes(32);
+    const encryptedPayloadHash = reader.bytes(32);
+    const encryptedPayoutHash = reader.optionBytes(32);
+    const arciumComputation = reader.pubkey();
+    const status = reader.u8();
+    const createdAt = reader.i64();
+    const bump = reader.u8();
+
+    return {
+      address: pubkey.toBase58(),
+      user,
+      market,
+      stakeCommitmentHash: bytesToHex(stakeCommitmentHash),
+      encryptedPayloadHash: bytesToHex(encryptedPayloadHash),
+      encryptedPayoutHash: encryptedPayoutHash ? bytesToHex(encryptedPayoutHash) : '',
+      arciumComputation,
+      status,
+      statusLabel: ['Stake Recorded', 'Settlement Ready', 'Claim Recorded', 'Cancelled'][status] || 'Unknown',
+      createdAt,
+      createdAtDisplay: formatMarketDate(Number(createdAt)),
+      bump,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function createAccountReader(data, initialOffset = 0) {
   let offset = initialOffset;
   const buffer = Buffer.from(data);
@@ -764,6 +1145,10 @@ function createAccountReader(data, initialOffset = 0) {
     optionPubkey() {
       const present = this.u8();
       return present ? this.pubkey() : null;
+    },
+    optionBytes(length) {
+      const present = this.u8();
+      return present ? this.bytes(length) : null;
     },
   };
 }

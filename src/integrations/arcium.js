@@ -4,11 +4,15 @@ export function getArciumRuntimeConfig() {
   return {
     rpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || DEFAULT_RPC_URL,
     stakeApiUrl: import.meta.env.VITE_ARCIUM_STAKE_API_URL || '',
+    settlementApiUrl: import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL || '',
     programId: import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || '',
     clusterOffset: import.meta.env.VITE_ARCIUM_CLUSTER_OFFSET || '',
     stakeInstruction: import.meta.env.VITE_ARCIUM_STAKE_INSTRUCTION || 'submit_private_stake_v2',
+    settlementInstruction: import.meta.env.VITE_ARCIUM_SETTLEMENT_INSTRUCTION || 'compute_private_settlement',
     stakeCircuitUrl: import.meta.env.VITE_ARCIUM_STAKE_CIRCUIT_URL || '',
     stakeCircuitHash: import.meta.env.VITE_ARCIUM_STAKE_CIRCUIT_HASH || '',
+    settlementCircuitUrl: import.meta.env.VITE_ARCIUM_SETTLEMENT_CIRCUIT_URL || '',
+    settlementCircuitHash: import.meta.env.VITE_ARCIUM_SETTLEMENT_CIRCUIT_HASH || '',
   };
 }
 
@@ -45,6 +49,10 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
           marketAddress: market?.marketAddress,
           title: market?.title,
           conditionId: market?.conditionId,
+          yes: market?.yes,
+          no: market?.no,
+          volume: market?.volume,
+          volumeDisplay: market?.volumeDisplay,
         },
         position,
         amount: Number(amount || 0),

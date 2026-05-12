@@ -209,13 +209,20 @@ pub mod forecast {
         encrypted_payout_hash: [u8; 32],
         arcium_computation: Pubkey,
     ) -> Result<()> {
+        let market = &ctx.accounts.market;
         require_keys_eq!(
-            ctx.accounts.forecast_config.authority,
+            market.creator,
             ctx.accounts.authority.key(),
             ForecastError::Unauthorized
         );
+        require!(market.status != MarketStatus::Open, ForecastError::MarketNotResolved);
 
         let commitment = &mut ctx.accounts.stake_commitment;
+        require_keys_eq!(commitment.market, market.key(), ForecastError::StakeMarketMismatch);
+        require!(
+            commitment.status != StakeStatus::Claimed,
+            ForecastError::StakeAlreadyClaimed
+        );
         commitment.status = StakeStatus::SettlementReady;
         commitment.encrypted_payout_hash = Some(encrypted_payout_hash);
         commitment.arcium_computation = arcium_computation;
@@ -229,18 +236,44 @@ pub mod forecast {
     }
 
     pub fn mark_claimed(ctx: Context<MarkClaimed>, claim_amount: u64) -> Result<()> {
+        let market = &ctx.accounts.market;
         require_keys_eq!(
-            ctx.accounts.forecast_config.authority,
+            market.creator,
             ctx.accounts.authority.key(),
             ForecastError::Unauthorized
         );
+        require!(market.status != MarketStatus::Open, ForecastError::MarketNotResolved);
+        require_keys_eq!(
+            ctx.accounts.stake_commitment.market,
+            market.key(),
+            ForecastError::StakeMarketMismatch
+        );
 
-        let commitment = &mut ctx.accounts.stake_commitment;
         require!(
-            commitment.status == StakeStatus::SettlementReady,
+            ctx.accounts.stake_commitment.status == StakeStatus::SettlementReady,
             ForecastError::SettlementNotReady
         );
-        commitment.status = StakeStatus::Claimed;
+
+        if claim_amount > 0 {
+            let config_bump = ctx.accounts.forecast_config.bump;
+            let signer_seeds: &[&[u8]] = &[b"forecast-config", &[config_bump]];
+
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault_token_account.to_account_info(),
+                        to: ctx.accounts.user_cast_account.to_account_info(),
+                        authority: ctx.accounts.forecast_config.to_account_info(),
+                    },
+                    &[signer_seeds],
+                ),
+                claim_amount,
+            )?;
+        }
+
+        ctx.accounts.stake_commitment.status = StakeStatus::Claimed;
+        let stake_commitment_key = ctx.accounts.stake_commitment.key();
 
         let config = &mut ctx.accounts.forecast_config;
         config.total_private_claims = config
@@ -249,7 +282,7 @@ pub mod forecast {
             .ok_or(ForecastError::MathOverflow)?;
 
         emit!(PrivatePayoutClaimed {
-            stake_commitment: commitment.key(),
+            stake_commitment: stake_commitment_key,
             claim_amount,
         });
 
@@ -465,6 +498,7 @@ pub struct RecordPrivateStake<'info> {
 pub struct MarkSettlementReady<'info> {
     #[account(seeds = [b"forecast-config"], bump = forecast_config.bump)]
     pub forecast_config: Account<'info, ForecastConfig>,
+    pub market: Account<'info, Market>,
     #[account(mut)]
     pub stake_commitment: Account<'info, StakeCommitment>,
     pub authority: Signer<'info>,
@@ -474,9 +508,24 @@ pub struct MarkSettlementReady<'info> {
 pub struct MarkClaimed<'info> {
     #[account(mut, seeds = [b"forecast-config"], bump = forecast_config.bump)]
     pub forecast_config: Account<'info, ForecastConfig>,
+    pub market: Account<'info, Market>,
     #[account(mut)]
     pub stake_commitment: Account<'info, StakeCommitment>,
+    #[account(
+        mut,
+        address = forecast_config.vault_token_account,
+        constraint = vault_token_account.mint == forecast_config.cast_mint,
+        constraint = vault_token_account.owner == forecast_config.key(),
+    )]
+    pub vault_token_account: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = user_cast_account.owner == stake_commitment.user,
+        constraint = user_cast_account.mint == forecast_config.cast_mint,
+    )]
+    pub user_cast_account: Account<'info, TokenAccount>,
     pub authority: Signer<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -739,6 +788,12 @@ pub enum ForecastError {
     InvalidAmount,
     #[msg("Settlement is not ready")]
     SettlementNotReady,
+    #[msg("Market must be resolved before settlement")]
+    MarketNotResolved,
+    #[msg("Stake commitment does not belong to this market")]
+    StakeMarketMismatch,
+    #[msg("Stake commitment was already claimed")]
+    StakeAlreadyClaimed,
     #[msg("Initial faucet claim is required before requesting daily refills")]
     InitialClaimRequired,
     #[msg("Daily refill limit is still active")]

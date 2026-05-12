@@ -15,6 +15,7 @@ import * as fs from "fs";
 import * as os from "os";
 
 const STAKE_COMPUTATION = "submit_private_stake_v2";
+const SETTLEMENT_COMPUTATION = "compute_private_settlement";
 
 describe("ForecastMxe", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -62,6 +63,49 @@ describe("ForecastMxe", () => {
 
     const compDef = await arciumProgram.account.computationDefinitionAccount.fetch(compDefPDA);
     console.log("final circuit state:", getCircuitState(compDef.circuitSource));
+  });
+
+  it("initializes the off-chain compute_private_settlement computation definition", async () => {
+    const circuitUrl = process.env.SETTLEMENT_CIRCUIT_URL || process.env.CIRCUIT_URL_COMPUTE_PRIVATE_SETTLEMENT;
+    if (!circuitUrl) {
+      throw new Error(
+        "Missing SETTLEMENT_CIRCUIT_URL. Upload build/compute_private_settlement.arcis to public storage, then rerun with SETTLEMENT_CIRCUIT_URL=<public-url>.",
+      );
+    }
+
+    const owner = readKpJson(`${os.homedir()}/.config/solana/id.json`);
+    const compDefPDA = getCompDefPda(program.programId, SETTLEMENT_COMPUTATION);
+    const existingCompDef = await provider.connection.getAccountInfo(compDefPDA);
+
+    if (!existingCompDef) {
+      const mxeAccount = getMXEAccAddress(program.programId);
+      const mxeAcc = await arciumProgram.account.mxeAccount.fetch(mxeAccount);
+      const lutAddress = getLookupTableAddress(program.programId, mxeAcc.lutOffsetSlot);
+      const circuitHash = readCircuitHash(
+        process.env.SETTLEMENT_CIRCUIT_HASH_PATH || "build/compute_private_settlement.hash",
+      );
+
+      const sig = await program.methods
+        .initComputePrivateSettlementCompDef(circuitUrl, circuitHash)
+        .accounts({
+          payer: owner.publicKey,
+          mxeAccount,
+          compDefAccount: compDefPDA,
+          addressLookupTable: lutAddress,
+        })
+        .signers([owner])
+        .rpc({
+          commitment: "confirmed",
+        });
+
+      console.log("Initialized compute_private_settlement off-chain computation definition", sig);
+      console.log(`https://explorer.solana.com/tx/${sig}?cluster=devnet`);
+    } else {
+      console.log("compute_private_settlement computation definition already exists", compDefPDA.toBase58());
+    }
+
+    const compDef = await arciumProgram.account.computationDefinitionAccount.fetch(compDefPDA);
+    console.log("final settlement circuit state:", getCircuitState(compDef.circuitSource));
   });
 });
 

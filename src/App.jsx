@@ -5,9 +5,13 @@ import { emptyWallet, markets } from './data/forecastData.js';
 import {
   createForecastMarket,
   fetchForecastNativeMarkets,
+  fetchMarketStakeCommitments,
+  fetchUserStakeCommitments,
   getInjectedForecastWallet,
+  queueArciumSettlement,
   requestDailyCastRefill,
   resolveForecastMarket,
+  settleAndPayStake,
   submitForecastStake,
   syncForecastWallet,
 } from './integrations/forecast.js';
@@ -267,6 +271,42 @@ function App() {
     return result;
   }
 
+  async function handleLoadUserStakeCommitments(market) {
+    if (!walletProvider) {
+      throw new Error('Connect Phantom or Backpack before checking settlement.');
+    }
+
+    return fetchUserStakeCommitments(walletProvider, market);
+  }
+
+  async function handleLoadMarketStakeCommitments(market) {
+    if (!walletProvider) {
+      throw new Error('Connect the market creator wallet before loading settlement commitments.');
+    }
+
+    return fetchMarketStakeCommitments(walletProvider, market);
+  }
+
+  async function handleQueueArciumSettlement(settlementDraft) {
+    if (!walletProvider) {
+      throw new Error('Connect the market creator wallet before running Arcium settlement.');
+    }
+
+    const result = await queueArciumSettlement(walletProvider, settlementDraft);
+    showToast(`Arcium settlement queued. Tx ${result.signature.slice(0, 6)}...${result.signature.slice(-4)}.`);
+    return result;
+  }
+
+  async function handleSettleAndPayStake(settlementDraft) {
+    if (!walletProvider) {
+      throw new Error('Connect the market creator wallet before settling payout.');
+    }
+
+    const result = await settleAndPayStake(walletProvider, settlementDraft);
+    showToast(`Payout settled. Tx ${result.signature.slice(0, 6)}...${result.signature.slice(-4)}.`);
+    return result;
+  }
+
   async function handleResolveMarket(market, outcome) {
     if (!walletProvider) {
       throw new Error('Connect the market creator wallet before resolving.');
@@ -312,14 +352,14 @@ function App() {
   const route = useMemo(() => {
     if (path === '/') return <LandingPage navigate={navigate} markets={appMarkets} />;
     if (path === '/markets') return <MarketsPage navigate={navigate} markets={appMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
-    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} wallet={wallet} onConnect={beginConnect} onStake={handleSubmitStake} onResolveMarket={handleResolveMarket} />;
+    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} wallet={wallet} onConnect={beginConnect} onStake={handleSubmitStake} onResolveMarket={handleResolveMarket} onLoadUserStakeCommitments={handleLoadUserStakeCommitments} onLoadMarketStakeCommitments={handleLoadMarketStakeCommitments} onQueueArciumSettlement={handleQueueArciumSettlement} onSettleAndPayStake={handleSettleAndPayStake} />;
     if (path === '/create') return <CreateMarketPage connected={connected} walletProvider={walletProvider} onConnect={beginConnect} onCreateMarket={handleCreateMarket} />;
     if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || '')} balance={balance} connected={connected} />;
     if (path === '/rooms') return <RoomsPage navigate={navigate} />;
     if (path.startsWith('/rooms/')) return <RoomDetailPage id={path.split('/')[2]} navigate={navigate} markets={appMarkets} />;
     if (path === '/leaderboard') return <LeaderboardPage />;
     return <LandingPage navigate={navigate} markets={appMarkets} />;
-  }, [path, appMarkets, polymarketStatus, polymarketError, connected, walletProvider, balance]);
+  }, [path, appMarkets, polymarketStatus, polymarketError, connected, walletProvider, wallet, balance]);
 
   return (
     <div className="app-shell">

@@ -39,6 +39,7 @@ const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const PROGRAM_ID = process.env.ARCIUM_MXE_PROGRAM_ID || '';
 const CLUSTER_OFFSET = Number(process.env.ARCIUM_CLUSTER_OFFSET || 456);
 const STAKE_INSTRUCTION = process.env.ARCIUM_STAKE_INSTRUCTION || 'submit_private_stake_v2';
+const SETTLEMENT_INSTRUCTION = process.env.ARCIUM_SETTLEMENT_INSTRUCTION || 'compute_private_settlement';
 const FORECAST_PROGRAM_ID = process.env.FORECAST_PROGRAM_ID || process.env.VITE_FORECAST_PROGRAM_ID || '';
 const FORECAST_CONFIG = process.env.FORECAST_CONFIG || process.env.VITE_FORECAST_CONFIG || '';
 const ODDS_KEEPER_KEYPAIR_PATH = process.env.FORECAST_ODDS_KEEPER_KEYPAIR_PATH || '~/.config/solana/id.json';
@@ -56,11 +57,13 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
 };
+const pendingStakeSecrets = new Map();
+const stakeSecretsByCommitment = new Map();
 
 export function createForecastApiHandler() {
   return async function forecastApiHandler(req, res, next) {
     const route = req.url?.split('?')[0] || '';
-    const handlesRoute = ['/stake', '/odds/update'].includes(route);
+    const handlesRoute = ['/stake', '/settlement/register', '/settlement', '/odds/update'].includes(route);
 
     if (!handlesRoute && next) {
       next();
@@ -76,19 +79,21 @@ export function createForecastApiHandler() {
     }
 
     if (req.method !== 'POST' || !handlesRoute) {
-      sendJson(res, 404, { error: 'Route not found. POST /stake and POST /odds/update are available.' });
+      sendJson(res, 404, { error: 'Route not found. POST /stake, /settlement/register, /settlement, and /odds/update are available.' });
       return;
     }
 
     try {
-      if (route === '/stake' && !PROGRAM_ID) {
+      if ((route === '/stake' || route === '/settlement') && !PROGRAM_ID) {
         throw new Error('ARCIUM_MXE_PROGRAM_ID is required.');
       }
 
       const body = await readJson(req);
-      const payload = route === '/stake'
-        ? await prepareStakePayload(body)
-        : await updatePublicOdds(body);
+      let payload;
+      if (route === '/stake') payload = await prepareStakePayload(body);
+      if (route === '/settlement/register') payload = registerSettlementSecret(body);
+      if (route === '/settlement') payload = await prepareSettlementPayload(body);
+      if (route === '/odds/update') payload = await updatePublicOdds(body);
       sendJson(res, 200, payload);
     } catch (error) {
       sendJson(res, 500, { error: error.message });
@@ -111,7 +116,7 @@ export function startForecastApiServer(port = PORT) {
       ? `serving ${DIST_DIR}`
       : 'dist/ not found; run npm run build before production serving';
     console.log(`Forecast server listening on http://localhost:${port} (${frontendStatus})`);
-    console.log(`API routes: http://localhost:${port}/stake and /odds/update`);
+    console.log(`API routes: http://localhost:${port}/stake, /settlement/register, /settlement, and /odds/update`);
   });
   return server;
 }
@@ -121,6 +126,121 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 async function prepareStakePayload(body) {
+  const position = normalizeOutcome(body.position);
+  if (!position) throw new Error('Stake position must be YES or NO.');
+
+  const settlementCacheKey = bytesToHex(randomBytes(16));
+  const quote = quoteBinaryTrade({
+    yesPercent: Number(body.market?.yes ?? 50),
+    volume: Number(body.market?.volume ?? parseCastVolume(body.market?.volumeDisplay)),
+    position,
+    amount: Number(body.amount || 0),
+  });
+  const payoutIfWonRaw = castUiAmountToRaw(quote.payout);
+  const normalizedBody = { ...body, position };
+  pendingStakeSecrets.set(settlementCacheKey, {
+    walletAddress: body.walletAddress,
+    marketAddress: body.market?.marketAddress || body.market?.id || '',
+    marketKey: body.market?.marketAddress || body.market?.id || body.market?.conditionId || body.market?.title || '',
+    position,
+    amount: Number(body.amount || 0),
+    yesPercentAtStake: Number(body.market?.yes ?? 50),
+    volumeAtStake: Number(body.market?.volume ?? parseCastVolume(body.market?.volumeDisplay)),
+    payoutIfWonRaw: payoutIfWonRaw.toString(),
+    payoutIfWon: rawCastToNumber(payoutIfWonRaw),
+    multiplier: 1,
+    createdAt: Date.now(),
+  });
+
+  const payload = await buildArciumPayload({
+    body: normalizedBody,
+    instruction: STAKE_INSTRUCTION,
+    plaintext: buildStakePlaintext(normalizedBody),
+    ciphertextFieldNames: ['marketId', 'position', 'amount', 'multiplier'],
+  });
+
+  return {
+    ...payload,
+    settlementCacheKey,
+  };
+}
+
+function registerSettlementSecret(body) {
+  const stakeCommitment = String(body.stakeCommitment || '').trim();
+  const settlementCacheKey = String(body.settlementCacheKey || '').trim();
+  const pending = pendingStakeSecrets.get(settlementCacheKey);
+
+  if (!stakeCommitment) throw new Error('stakeCommitment is required for settlement registration.');
+  if (!pending) throw new Error('Settlement secret cache entry was not found. Prepare the stake again.');
+
+  stakeSecretsByCommitment.set(stakeCommitment, {
+    ...pending,
+    stakeCommitment,
+    owner: body.owner || pending.walletAddress,
+    marketAddress: body.marketAddress || pending.marketAddress,
+    registeredAt: Date.now(),
+  });
+  pendingStakeSecrets.delete(settlementCacheKey);
+
+  return {
+    registered: true,
+    stakeCommitment,
+    arciumSettlementReady: true,
+  };
+}
+
+async function prepareSettlementPayload(body) {
+  const stakeCommitment = String(body.stakeCommitment?.address || body.stakeCommitment || '').trim();
+  const secret = stakeSecretsByCommitment.get(stakeCommitment);
+  if (!secret) {
+    throw new Error('Private settlement inputs are not registered for this stake. New stakes register automatically while the Forecast server is running.');
+  }
+
+  const requestedMarket = body.market?.marketAddress || body.market?.id || body.marketAddress || '';
+  if (requestedMarket && secret.marketAddress && requestedMarket !== secret.marketAddress) {
+    throw new Error('Registered settlement secret does not belong to this market.');
+  }
+
+  const winningPosition = normalizeOutcome(body.winningPosition || body.outcome || body.market?.outcome);
+  if (!winningPosition) throw new Error('Resolved YES/NO outcome is required before Arcium settlement.');
+
+  const userPosition = normalizeOutcome(secret.position);
+  if (!userPosition) throw new Error('Registered stake position is invalid. Re-stake while the Forecast server is running.');
+
+  const won = userPosition === winningPosition;
+  const payoutIfWonRaw = resolvePayoutIfWonRaw(secret, body, userPosition);
+  const claimAmountRaw = won ? payoutIfWonRaw : 0n;
+  const claimAmount = rawCastToNumber(claimAmountRaw);
+  const settlementBody = {
+    walletAddress: body.walletAddress,
+    userPosition,
+    winningPosition,
+    amountRaw: payoutIfWonRaw.toString(),
+    multiplier: secret.multiplier,
+  };
+  const payload = await buildArciumPayload({
+    body: settlementBody,
+    instruction: SETTLEMENT_INSTRUCTION,
+    plaintext: buildSettlementPlaintext(settlementBody),
+    ciphertextFieldNames: ['userPosition', 'winningPosition', 'amount', 'multiplier'],
+  });
+
+  return {
+    ...payload,
+    stakeCommitment,
+    claimAmount,
+    claimAmountRaw: claimAmountRaw.toString(),
+    won,
+    settlementInputHash: makeSettlementInputHash({
+      stakeCommitment,
+      winningPosition,
+      claimAmountRaw: claimAmountRaw.toString(),
+      computationAccount: payload.accountHints.computationAccount,
+    }),
+  };
+}
+
+async function buildArciumPayload({ body, instruction, plaintext, ciphertextFieldNames }) {
   const programId = new PublicKey(PROGRAM_ID);
   const connection = new Connection(RPC_URL, 'confirmed');
   const provider = readonlyAnchorProvider(connection);
@@ -131,18 +251,21 @@ async function prepareStakePayload(body) {
   const cipher = new RescueCipher(sharedSecret);
   const nonce = randomBytes(16);
   const computationOffsetBytes = randomBytes(8);
-  const plaintext = buildStakePlaintext(body);
   const ciphertext = cipher.encrypt(plaintext, nonce);
   const computationOffset = new BN(bytesToHex(computationOffsetBytes), 16);
-  const compDefIndex = readCompDefIndex(getCompDefAccOffset(STAKE_INSTRUCTION));
+  const compDefIndex = readCompDefIndex(getCompDefAccOffset(instruction));
   const signPdaAccount = PublicKey.findProgramAddressSync(
     [Buffer.from('ArciumSignerAccount')],
     programId,
   )[0];
   const ciphertextChunks = ciphertext.map((chunk) => Array.from(chunk));
+  const ciphertextFields = ciphertextFieldNames.reduce((fields, name, index) => {
+    fields[name] = ciphertextChunks[index];
+    return fields;
+  }, {});
 
   return {
-    instruction: STAKE_INSTRUCTION,
+    instruction,
     programId: PROGRAM_ID,
     clusterOffset: CLUSTER_OFFSET,
     queueable: true,
@@ -153,12 +276,7 @@ async function prepareStakePayload(body) {
     nonceValue: deserializeLE(nonce).toString(),
     clientPublicKey: Array.from(clientPublicKey),
     ciphertext: ciphertextChunks,
-    ciphertextFields: {
-      marketId: ciphertextChunks[0],
-      position: ciphertextChunks[1],
-      amount: ciphertextChunks[2],
-      multiplier: ciphertextChunks[3],
-    },
+    ciphertextFields,
     accountHints: {
       signPdaAccount: signPdaAccount.toString(),
       computationAccount: getComputationAccAddress(CLUSTER_OFFSET, computationOffset).toString(),
@@ -251,6 +369,22 @@ function buildStakePlaintext(body) {
   ];
 }
 
+function buildSettlementPlaintext(body) {
+  return [
+    body.userPosition === 'YES' ? 1n : 0n,
+    body.winningPosition === 'YES' ? 1n : 0n,
+    BigInt(body.amountRaw || 0),
+    BigInt(Number(body.multiplier || 1)),
+  ];
+}
+
+function normalizeOutcome(value) {
+  const text = String(value || '').toUpperCase();
+  if (text === 'YES') return 'YES';
+  if (text === 'NO') return 'NO';
+  return '';
+}
+
 function marketToFieldElement(market) {
   const seed = `${market?.conditionId || market?.id || ''}:${market?.title || ''}`;
   const hash = createHash('sha256').update(seed).digest();
@@ -312,12 +446,40 @@ function rawCastToNumber(value) {
   return Number(value) / Number(10n ** CAST_DECIMALS);
 }
 
+function parseCastVolume(value = '') {
+  if (!String(value).includes('$CAST')) return 0;
+  const number = String(value).replace(/[^0-9.]/g, '');
+  return Number(number || 0);
+}
+
 function castUiAmountToRaw(value) {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return 0n;
+    return BigInt(Math.floor(value * Number(10n ** CAST_DECIMALS)));
+  }
+
   const text = String(value ?? '0').trim();
-  if (!/^\d+(\.\d{1,6})?$/.test(text)) return 0n;
+  if (!/^\d+(\.\d+)?$/.test(text)) return 0n;
   const [whole, fraction = ''] = text.split('.');
+  const normalizedFraction = fraction
+    .slice(0, Number(CAST_DECIMALS))
+    .padEnd(Number(CAST_DECIMALS), '0');
   return BigInt(whole || '0') * 10n ** CAST_DECIMALS
-    + BigInt(fraction.padEnd(Number(CAST_DECIMALS), '0'));
+    + BigInt(normalizedFraction || '0');
+}
+
+function resolvePayoutIfWonRaw(secret, body, userPosition) {
+  const stored = BigInt(secret.payoutIfWonRaw || 0);
+  if (stored > 0n || Number(secret.amount || 0) <= 0) return stored;
+
+  const quote = quoteBinaryTrade({
+    yesPercent: Number(secret.yesPercentAtStake ?? body.market?.yes ?? 50),
+    volume: Number(secret.volumeAtStake ?? body.market?.volume ?? parseCastVolume(body.market?.volumeDisplay)),
+    position: userPosition,
+    amount: Number(secret.amount || 0),
+  });
+
+  return castUiAmountToRaw(quote.payout);
 }
 
 function makeAggregateCommitment(value) {
@@ -325,6 +487,12 @@ function makeAggregateCommitment(value) {
     .update(JSON.stringify(value, (_, item) => (typeof item === 'bigint' ? item.toString() : item)))
     .digest()
     .subarray(0, 64);
+}
+
+function makeSettlementInputHash(value) {
+  return createHash('sha256')
+    .update(JSON.stringify(value, (_, item) => (typeof item === 'bigint' ? item.toString() : item)))
+    .digest('hex');
 }
 
 function parsePublicKey(value) {
@@ -408,7 +576,7 @@ function readJson(req) {
 function sendJson(res, status, body) {
   setCors(res);
   res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
+  res.end(JSON.stringify(body, (_, item) => (typeof item === 'bigint' ? item.toString() : item)));
 }
 
 function setCors(res) {

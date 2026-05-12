@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { prepareEncryptedStake } from '../integrations/arcium.js';
 import { formatCast, truncateAddress } from '../lib/formatters.js';
 import { wait } from '../lib/async.js';
@@ -24,6 +24,10 @@ export function MarketDetailPage({
   onConnect,
   onStake,
   onResolveMarket,
+  onLoadUserStakeCommitments,
+  onLoadMarketStakeCommitments,
+  onQueueArciumSettlement,
+  onSettleAndPayStake,
 }) {
   const market = markets.find((item) => item.id === id) || markets[0];
   const [position, setPosition] = useState('YES');
@@ -37,6 +41,23 @@ export function MarketDetailPage({
   const [activity, setActivity] = useState([]);
   const [resolutionPhase, setResolutionPhase] = useState('');
   const [resolutionMessage, setResolutionMessage] = useState('');
+  const [settlementRows, setSettlementRows] = useState([]);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementChecked, setSettlementChecked] = useState(false);
+  const [settlementMessage, setSettlementMessage] = useState('');
+  const [creatorSettlementRows, setCreatorSettlementRows] = useState([]);
+  const [creatorSettlementLoading, setCreatorSettlementLoading] = useState(false);
+  const [creatorSettlementMessage, setCreatorSettlementMessage] = useState('');
+  const [payingCommitment, setPayingCommitment] = useState('');
+
+  useEffect(() => {
+    setSettlementRows([]);
+    setSettlementChecked(false);
+    setSettlementMessage('');
+    setCreatorSettlementRows([]);
+    setCreatorSettlementMessage('');
+    setPayingCommitment('');
+  }, [market?.id, wallet]);
 
   if (!market) {
     return (
@@ -109,7 +130,12 @@ export function MarketDetailPage({
       setPhase('');
       setStakeSignature(stakeResult.signature);
       setStakeProof(stakeResult);
-      setSuccess(`🔒 Position encrypted and recorded on Solana. Tx ${truncateAddress(stakeResult.signature)}.`);
+      if (stakeResult.settlementRegistration?.status === 'failed') {
+        setStakeNoticeType('warning');
+        setSuccess(`🔒 Stake recorded, but settlement registration needs the Forecast server: ${stakeResult.settlementRegistration.error}`);
+      } else {
+        setSuccess(`🔒 Position encrypted and recorded on Solana. Tx ${truncateAddress(stakeResult.signature)}.`);
+      }
       setActivity((items) => [{ time: 'now', side: position }, ...items.slice(0, 5)]);
     } catch (error) {
       setPhase('');
@@ -146,6 +172,108 @@ export function MarketDetailPage({
     } catch (error) {
       setResolutionPhase('');
       setResolutionMessage(error.message || 'Market resolution failed.');
+    }
+  }
+
+  async function loadSettlementStatus() {
+    if (!onLoadUserStakeCommitments || settlementLoading) return;
+
+    if (!connected) {
+      setSettlementMessage('Connect Phantom or Backpack before checking settlement.');
+      onConnect?.();
+      return;
+    }
+
+    try {
+      setSettlementLoading(true);
+      setSettlementMessage('');
+      const rows = await onLoadUserStakeCommitments(market);
+      setSettlementRows(rows);
+      setSettlementChecked(true);
+      if (!rows.length) {
+        setSettlementMessage('No encrypted stake commitment was found for this wallet on this market.');
+      }
+    } catch (error) {
+      setSettlementMessage(error.message || 'Settlement check failed.');
+    } finally {
+      setSettlementLoading(false);
+    }
+  }
+
+  async function loadCreatorSettlementRows() {
+    if (!onLoadMarketStakeCommitments || creatorSettlementLoading) return;
+
+    try {
+      setCreatorSettlementLoading(true);
+      setCreatorSettlementMessage('');
+      const rows = await onLoadMarketStakeCommitments(market);
+      setCreatorSettlementRows(rows);
+      if (!rows.length) {
+        setCreatorSettlementMessage('No encrypted stake commitments exist for this market yet.');
+      }
+    } catch (error) {
+      setCreatorSettlementMessage(error.message || 'Could not load settlement commitments.');
+    } finally {
+      setCreatorSettlementLoading(false);
+    }
+  }
+
+  async function queueCreatorSettlement(row) {
+    if (!onQueueArciumSettlement || payingCommitment) return;
+
+    try {
+      setPayingCommitment(row.address);
+      setCreatorSettlementMessage('');
+      const result = await onQueueArciumSettlement({
+        market,
+        stakeCommitment: row,
+      });
+      setCreatorSettlementRows((items) => items.map((item) => (
+        item.address === row.address
+          ? {
+              ...item,
+              settlementPayload: result,
+              settlementSignature: result.signature,
+              settlementClaimAmount: result.claimAmount,
+              settlementStatusLabel: result.statusLabel,
+            }
+          : item
+      )));
+      setCreatorSettlementMessage(`Payout computation queued. Tx ${truncateAddress(result.signature)}.`);
+    } catch (error) {
+      setCreatorSettlementMessage(error.message || 'Payout computation failed.');
+    } finally {
+      setPayingCommitment('');
+    }
+  }
+
+  async function settleCreatorPayout(row) {
+    if (!onSettleAndPayStake || payingCommitment) return;
+
+    try {
+      setPayingCommitment(row.address);
+      setCreatorSettlementMessage('');
+      const result = await onSettleAndPayStake({
+        market,
+        stakeCommitment: row,
+        settlementPayload: row.settlementPayload,
+      });
+      setCreatorSettlementRows((items) => items.map((item) => (
+        item.address === row.address
+          ? {
+              ...item,
+              status: result.status,
+              statusLabel: result.statusLabel,
+              payoutSignature: result.signature,
+              settlementClaimAmount: row.settlementClaimAmount,
+            }
+          : item
+      )));
+      setCreatorSettlementMessage(`Payout recorded. Tx ${truncateAddress(result.signature)}.`);
+    } catch (error) {
+      setCreatorSettlementMessage(error.message || 'Payout settlement failed.');
+    } finally {
+      setPayingCommitment('');
     }
   }
 
@@ -278,6 +406,126 @@ export function MarketDetailPage({
               {resolutionMessage && <p className="teal-note">{resolutionMessage}</p>}
             </section>
           )}
+
+          {isNativeMarket && (
+            <section className="criteria-panel settlement-panel">
+              <SectionHeader
+                title="Settlement Status"
+                text={isResolved
+                  ? 'Check the encrypted stake commitments tied to your wallet for this resolved market.'
+                  : 'Stake commitments are recorded now. Payout settlement starts after creator resolution.'}
+              />
+              {!connected ? (
+                <div className="empty-state compact">
+                  Connect your wallet to check whether this market has an encrypted stake commitment for you.
+                </div>
+              ) : (
+                <>
+                  <div className="settlement-actions">
+                    <button className="btn btn-secondary" type="button" onClick={loadSettlementStatus} disabled={settlementLoading}>
+                      {settlementLoading ? 'Checking devnet...' : 'Refresh My Status'}
+                    </button>
+                    <span>{isResolved ? `Outcome: ${market.outcome || market.status}` : 'Waiting for final outcome'}</span>
+                  </div>
+
+                  {settlementRows.length > 0 && (
+                    <div className="settlement-list">
+                      {settlementRows.map((row) => (
+                        <div className="settlement-row" key={row.address}>
+                          <div>
+                            <span className={`settlement-status-pill status-${row.status}`}>{row.statusLabel}</span>
+                            <strong>Forecast commitment {truncateAddress(row.address)}</strong>
+                            <small>{settlementHint(row.status, isResolved)}</small>
+                          </div>
+                          <div className="stake-proof-links">
+                            <a href={explorerAccount(row.address)} target="_blank" rel="noreferrer">
+                              Commitment account
+                            </a>
+                            <a href={explorerAccount(row.arciumComputation)} target="_blank" rel="noreferrer">
+                              Arcium computation
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {settlementMessage && <p className="teal-note">{settlementMessage}</p>}
+                  {settlementChecked && settlementRows.length === 0 && !settlementMessage && (
+                    <div className="empty-state compact">
+                      No encrypted stake commitment found for this wallet on this market.
+                    </div>
+                  )}
+
+                  {isCreator && isResolved && (
+                    <div className="author-settlement-box">
+                      <SectionHeader
+                        title="Author Payout Desk"
+                        text="Stake privacy already ran when users traded. This desk computes private payouts after the creator posts the final outcome."
+                      />
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={loadCreatorSettlementRows}
+                        disabled={creatorSettlementLoading}
+                      >
+                        {creatorSettlementLoading ? 'Loading commitments...' : 'Load Market Commitments'}
+                      </button>
+
+                      {creatorSettlementRows.length > 0 && (
+                        <div className="author-settlement-list">
+                          {creatorSettlementRows.map((row) => (
+                            <div className="author-settlement-row" key={row.address}>
+                              <div>
+                                <span className={`settlement-status-pill status-${row.status}`}>{row.statusLabel}</span>
+                                <strong>{truncateAddress(row.user)}</strong>
+                                <small>{truncateAddress(row.address)}</small>
+                              </div>
+                              <div className="author-payout-result">
+                                <span>Arcium payout</span>
+                                <strong>
+                                  {row.settlementPayload
+                                    ? `${formatCast(row.settlementPayload.claimAmount)} $CAST`
+                                    : 'pending'}
+                                </strong>
+                                {row.settlementStatusLabel && <small>{row.settlementStatusLabel}</small>}
+                              </div>
+                              <button
+                                className="btn btn-secondary"
+                                type="button"
+                                onClick={() => (row.settlementPayload ? settleCreatorPayout(row) : queueCreatorSettlement(row))}
+                                disabled={row.status === 2 || Boolean(payingCommitment)}
+                              >
+                                {payingCommitment === row.address
+                                  ? 'Working...'
+                                  : row.status === 2
+                                    ? 'Paid'
+                                    : row.settlementPayload
+                                      ? 'Pay Result'
+                                      : 'Compute Payout'}
+                              </button>
+                              {row.settlementSignature && (
+                                <a href={`https://explorer.solana.com/tx/${row.settlementSignature}?cluster=devnet`} target="_blank" rel="noreferrer">
+                                  View Arcium tx
+                                </a>
+                              )}
+                              {row.payoutSignature && (
+                                <a href={`https://explorer.solana.com/tx/${row.payoutSignature}?cluster=devnet`} target="_blank" rel="noreferrer">
+                                  View payout tx
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {creatorSettlementMessage && <p className="teal-note">{creatorSettlementMessage}</p>}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
         </div>
 
         <aside className="stake-card order-panel">
@@ -386,6 +634,28 @@ export function MarketDetailPage({
 
 function explorerAccount(address) {
   return `https://explorer.solana.com/address/${address}?cluster=devnet`;
+}
+
+function settlementHint(status, isResolved) {
+  if (status === 0) {
+    return isResolved
+      ? 'Stake privacy already ran. Creator payout action is still needed below.'
+      : 'Encrypted stake is recorded. Settlement waits until the market resolves.';
+  }
+
+  if (status === 1) {
+    return 'Encrypted payout hash is recorded. Vault transfer is the next contract step.';
+  }
+
+  if (status === 2) {
+    return 'Payout transfer and claim state have been recorded on Forecast.';
+  }
+
+  if (status === 3) {
+    return 'This encrypted commitment was cancelled.';
+  }
+
+  return 'Unknown settlement state.';
 }
 
 function formatCentPrice(value) {

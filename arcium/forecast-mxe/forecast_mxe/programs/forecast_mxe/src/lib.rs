@@ -3,6 +3,7 @@ use arcium_anchor::prelude::*;
 use arcium_client::idl::arcium::types::{CircuitSource, OffChainCircuitSource};
 
 const COMP_DEF_OFFSET_SUBMIT_PRIVATE_STAKE: u32 = comp_def_offset("submit_private_stake_v2");
+const COMP_DEF_OFFSET_COMPUTE_PRIVATE_SETTLEMENT: u32 = comp_def_offset("compute_private_settlement");
 
 declare_id!("3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK");
 
@@ -12,6 +13,23 @@ pub mod forecast_mxe {
 
     pub fn init_submit_private_stake_v2_comp_def(
         ctx: Context<InitSubmitPrivateStakeCompDef>,
+        circuit_source: String,
+        circuit_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(circuit_source.len() <= 200, ErrorCode::CircuitSourceTooLong);
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: circuit_source,
+                hash: circuit_hash,
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_compute_private_settlement_comp_def(
+        ctx: Context<InitComputePrivateSettlementCompDef>,
         circuit_source: String,
         circuit_hash: [u8; 32],
     ) -> Result<()> {
@@ -62,6 +80,41 @@ pub mod forecast_mxe {
         Ok(())
     }
 
+    pub fn compute_private_settlement(
+        ctx: Context<ComputePrivateSettlement>,
+        computation_offset: u64,
+        user_position: [u8; 32],
+        winning_position: [u8; 32],
+        amount: [u8; 32],
+        multiplier: [u8; 32],
+        pubkey: [u8; 32],
+        nonce: u128,
+    ) -> Result<()> {
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+        let args = ArgBuilder::new()
+            .x25519_pubkey(pubkey)
+            .plaintext_u128(nonce)
+            .encrypted_u8(user_position)
+            .encrypted_u8(winning_position)
+            .encrypted_u64(amount)
+            .encrypted_u8(multiplier)
+            .build();
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args,
+            vec![ComputePrivateSettlementCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &[],
+            )?],
+            1,
+            0,
+        )?;
+        Ok(())
+    }
+
     #[arcium_callback(encrypted_ix = "submit_private_stake_v2")]
     pub fn submit_private_stake_v2_callback(
         ctx: Context<SubmitPrivateStakeV2Callback>,
@@ -74,6 +127,23 @@ pub mod forecast_mxe {
             };
 
         emit!(PrivateStakeComputed {
+            computation: ctx.accounts.computation_account.key(),
+        });
+        Ok(())
+    }
+
+    #[arcium_callback(encrypted_ix = "compute_private_settlement")]
+    pub fn compute_private_settlement_callback(
+        ctx: Context<ComputePrivateSettlementCallback>,
+        output: SignedComputationOutputs<ComputePrivateSettlementOutput>,
+    ) -> Result<()> {
+        let _verified_output =
+            match output.verify_output(&ctx.accounts.cluster_account, &ctx.accounts.computation_account) {
+                Ok(output) => output,
+                Err(_) => return Err(ErrorCode::AbortedComputation.into()),
+            };
+
+        emit!(PrivateSettlementComputed {
             computation: ctx.accounts.computation_account.key(),
         });
         Ok(())
@@ -140,12 +210,95 @@ pub struct SubmitPrivateStake<'info> {
     pub arcium_program: Program<'info, Arcium>,
 }
 
+#[queue_computation_accounts("compute_private_settlement", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct ComputePrivateSettlement<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(
+        address = derive_mxe_pda!()
+    )]
+    pub mxe_account: Account<'info, MXEAccount>,
+    #[account(
+        mut,
+        address = derive_mempool_pda!(mxe_account, ErrorCode::ClusterNotSet)
+    )]
+    /// CHECK: mempool_account, checked by the Arcium program.
+    pub mempool_account: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        address = derive_execpool_pda!(mxe_account, ErrorCode::ClusterNotSet)
+    )]
+    /// CHECK: executing_pool, checked by the Arcium program.
+    pub executing_pool: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::ClusterNotSet)
+    )]
+    /// CHECK: computation_account, checked by the Arcium program.
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_COMPUTE_PRIVATE_SETTLEMENT)
+    )]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(
+        mut,
+        address = derive_cluster_pda!(mxe_account, ErrorCode::ClusterNotSet)
+    )]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(
+        mut,
+        address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS,
+    )]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(
+        mut,
+        address = ARCIUM_CLOCK_ACCOUNT_ADDRESS
+    )]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
 #[callback_accounts("submit_private_stake_v2")]
 #[derive(Accounts)]
 pub struct SubmitPrivateStakeV2Callback<'info> {
     pub arcium_program: Program<'info, Arcium>,
     #[account(
         address = derive_comp_def_pda!(COMP_DEF_OFFSET_SUBMIT_PRIVATE_STAKE)
+    )]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(
+        address = derive_mxe_pda!()
+    )]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account, checked by Arcium program via callback context constraints.
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(
+        address = derive_cluster_pda!(mxe_account, ErrorCode::ClusterNotSet)
+    )]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    /// CHECK: instructions_sysvar, checked by the account constraint.
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("compute_private_settlement")]
+#[derive(Accounts)]
+pub struct ComputePrivateSettlementCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(
+        address = derive_comp_def_pda!(COMP_DEF_OFFSET_COMPUTE_PRIVATE_SETTLEMENT)
     )]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(
@@ -190,8 +343,40 @@ pub struct InitSubmitPrivateStakeCompDef<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[init_computation_definition_accounts("compute_private_settlement", payer)]
+#[derive(Accounts)]
+pub struct InitComputePrivateSettlementCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        address = derive_mxe_pda!()
+    )]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    #[account(mut)]
+    /// CHECK: comp_def_account, checked by Arcium program.
+    /// It cannot be checked here because it is not initialized yet.
+    pub comp_def_account: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        address = derive_mxe_lut_pda!(mxe_account.lut_offset_slot)
+    )]
+    /// CHECK: address_lookup_table, checked by Arcium program.
+    pub address_lookup_table: UncheckedAccount<'info>,
+    #[account(address = LUT_PROGRAM_ID)]
+    /// CHECK: lut_program is the Address Lookup Table program.
+    pub lut_program: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
 #[event]
 pub struct PrivateStakeComputed {
+    pub computation: Pubkey,
+}
+
+#[event]
+pub struct PrivateSettlementComputed {
     pub computation: Pubkey,
 }
 
