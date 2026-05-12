@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import {
   Footer,
   HeroMarketCard,
+  LockIcon,
   LiveMovers,
   MarketCard,
   SectionHeader,
@@ -74,7 +75,7 @@ export function LandingPage({ navigate, markets }) {
               <h2>Encrypted Compute</h2>
               <span>ARCIUM</span>
             </div>
-            <p>🔒 Stakes, expert inputs, and reputation records are computed privately. Only aggregate market signals leave the MPC layer.</p>
+            <p><LockIcon /> Stakes, expert inputs, and reputation records are computed privately. Only aggregate market signals leave the MPC layer.</p>
           </section>
         </aside>
       </section>

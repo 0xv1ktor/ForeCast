@@ -1,4 +1,4 @@
-import { CastAmount, SectionHeader } from '../components/Primitives.jsx';
+import { CastAmount, LockIcon, SectionHeader } from '../components/Primitives.jsx';
 import { tierDetails } from '../data/forecastData.js';
 import { formatCast, truncateAddress } from '../lib/formatters.js';
 
@@ -22,21 +22,21 @@ export function ProfilePage({ address, balance = 0, connected = false }) {
 
       <div className="stats-grid">
         <ProfileStat label="$CAST Balance" value={`◎ ${formatCast(balance)}`} />
-        <ProfileStat label="Unrealized P&L" value="Pending" />
-        <ProfileStat label="Resolved P&L" value="Pending" />
-        <ProfileStat label="Win Rate" value="Pending" />
+        <ProfileStat label="Open Positions" value={<CastAmount encrypted />} />
+        <ProfileStat label="Payout History" value="Coming soon" />
+        <ProfileStat label="Win Rate" value="Coming soon" />
       </div>
 
       <section className="portfolio-table">
         <SectionHeader title="Active Positions" />
         <div className="empty-state">
           Individual positions are encrypted and are not exposed through the public profile.
-          Local portfolio accounting will appear here after the position indexer is connected.
+          Portfolio accounting will appear here after the private position indexer is connected.
         </div>
       </section>
 
       <section className="privacy-box">
-        <strong>🔒 This user's full history is encrypted by Arcium MPC.</strong>
+        <strong><LockIcon /> This user's full history is encrypted by Arcium MPC.</strong>
         <p>Win rate is computed over encrypted data. No market history or position data is ever exposed.</p>
       </section>
 
@@ -51,7 +51,7 @@ export function ProfilePage({ address, balance = 0, connected = false }) {
             </div>
           ))}
         </div>
-        <p className="subtle">Current tier is pending until resolved market outcomes produce reputation aggregates.</p>
+        <p className="subtle">Current tier unlocks after resolved market outcomes produce reputation aggregates.</p>
       </section>
 
       <section className="profile-section">

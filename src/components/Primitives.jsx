@@ -27,9 +27,24 @@ export function AppLink({ to, navigate, children, className = '', onClick }) {
 export function ArciumBadge({ short = false, permissioned = false }) {
   return (
     <span className="arcium-badge">
-      <span aria-hidden="true"></span>
+      <LockIcon />
       {permissioned ? 'Arcium MPC' : short ? 'MPC active' : 'Encrypted computation'}
     </span>
+  );
+}
+
+export function LockIcon({ className = '' }) {
+  return (
+    <svg
+      className={`lock-icon ${className}`.trim()}
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5 7V5.7C5 3.8 6.3 2.5 8 2.5s3 1.3 3 3.2V7" />
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.4" />
+      <path d="M8 9.4v1.8" />
+    </svg>
   );
 }
 
@@ -137,7 +152,7 @@ export function MarketCard({ market, navigate }) {
         <span>{market.volumeDisplay}</span>
         <span className={change >= 0 ? 'daily-change positive' : 'daily-change negative'}>{change >= 0 ? '▲' : '▼'} {formatPercent(Math.abs(change))}%</span>
         <span>{market.ends}</span>
-        <span className="lock-mark">🔒</span>
+        <LockIcon className="lock-mark" />
       </div>
       {market.aggregateStatus === 'pending_mpc' && <span className="market-state warning">Pending aggregate</span>}
       {market.aggregateStatus === 'local_preview' && <span className="market-state">Local preview</span>}
@@ -189,7 +204,7 @@ export function ExpertSignalBar({ signal }) {
     >
       <div className="expert-head">
         <span>Expert Oracle</span>
-        <span>🔒</span>
+        <LockIcon />
       </div>
       <div className="expert-track">
         <motion.span
@@ -332,6 +347,7 @@ export function Navbar({
   onCopyAddress,
   onDisconnect,
   onRefill,
+  onHowItWorks,
   refillStatus,
   refillLoading,
 }) {
@@ -346,6 +362,7 @@ export function Navbar({
         <AppLink to={portfolioPath} navigate={navigate}>Portfolio</AppLink>
         <AppLink to="/leaderboard" navigate={navigate}>Leaderboard</AppLink>
         <AppLink to="/rooms" navigate={navigate}>Activity</AppLink>
+        <button type="button" onClick={onHowItWorks}>How It Works</button>
       </div>
       <div className="wallet-zone">
         {connected ? (
@@ -424,6 +441,85 @@ export function Navbar({
   );
 }
 
+export function HowItWorksModal({ onClose }) {
+  const [index, setIndex] = useState(0);
+  const slide = HOW_IT_WORKS_SLIDES[index];
+  const atStart = index === 0;
+  const atEnd = index === HOW_IT_WORKS_SLIDES.length - 1;
+
+  return (
+    <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div
+        className="modal how-modal"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">How It Works</p>
+            <h2>{slide.title}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close how it works">×</button>
+        </div>
+
+        <div className="how-progress" aria-label={`Step ${index + 1} of ${HOW_IT_WORKS_SLIDES.length}`}>
+          {HOW_IT_WORKS_SLIDES.map((item, itemIndex) => (
+            <button
+              key={item.step}
+              type="button"
+              className={itemIndex === index ? 'active' : ''}
+              onClick={() => setIndex(itemIndex)}
+              aria-label={`Open ${item.title}`}
+            />
+          ))}
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.section
+            key={slide.step}
+            className="how-slide"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <div className="how-step">{slide.step}</div>
+            <p>{slide.text}</p>
+            <div className="how-points">
+              {slide.points.map((point) => (
+                <div key={point}>
+                  <LockIcon />
+                  <span>{point}</span>
+                </div>
+              ))}
+            </div>
+            {slide.arcium && (
+              <div className="how-arcium">
+                <ArciumBadge />
+                <span>{slide.arcium}</span>
+              </div>
+            )}
+          </motion.section>
+        </AnimatePresence>
+
+        <div className="how-actions">
+          <button className="btn btn-secondary" type="button" onClick={() => setIndex((value) => Math.max(0, value - 1))} disabled={atStart}>
+            Back
+          </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={() => (atEnd ? onClose() : setIndex((value) => Math.min(HOW_IT_WORKS_SLIDES.length - 1, value + 1)))}
+          >
+            {atEnd ? 'Close' : 'Next'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export function WalletModal({ status, selectedWallet, onChoose, onClose }) {
   return (
     <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -465,6 +561,52 @@ export function WalletModal({ status, selectedWallet, onChoose, onClose }) {
   );
 }
 
+const HOW_IT_WORKS_SLIDES = [
+  {
+    step: '01',
+    title: 'Forecast Markets',
+    text: 'ForeCast is a $CAST prediction market on Solana devnet. Native markets accept private stakes; Polymarket markets are imported as live public signals until you convert them.',
+    points: [
+      'Browse active markets and current probabilities.',
+      'Create native markets with a clear resolution date and criteria.',
+      'Convert a Polymarket signal into a ForeCast-native market before trading.',
+    ],
+  },
+  {
+    step: '02',
+    title: 'Private Staking',
+    text: 'When you trade on a native market, the app sends your side and amount through the Arcium stake computation before ForeCast records the commitment on Solana.',
+    points: [
+      'Your wallet signs the transaction.',
+      'ForeCast records a private stake commitment.',
+      'Public odds move from aggregate signal, not exposed individual positions.',
+    ],
+    arcium: 'The individual stake amount and side are handled through Arcium MPC instead of being displayed in the UI.',
+  },
+  {
+    step: '03',
+    title: 'Settlement',
+    text: 'The market creator posts the final outcome after the resolution time. Then the payout computation uses the encrypted commitments to produce claimable results.',
+    points: [
+      'Creator resolves YES, NO, or cancels against the stated criteria.',
+      'Arcium settlement computes payout references from private commitments.',
+      'ForeCast records and pays results from the settlement output.',
+    ],
+    arcium: 'The settlement circuit is separate from the stake circuit because it solves a different job after the market is resolved.',
+  },
+  {
+    step: '04',
+    title: 'What Stays Public',
+    text: 'The market question, odds, volume, outcome, and transaction references are public. Individual positions, stake amounts, and private reputation history stay hidden.',
+    points: [
+      'Public: market metadata, aggregate odds, final outcome.',
+      'Private: individual side, amount, and participation history.',
+      'Demo links show Forecast accounts and Arcium computation accounts on devnet explorer.',
+    ],
+    arcium: 'ForeCast uses Arcium where private computation matters: stake privacy now, settlement privacy after resolution.',
+  },
+];
+
 export function Footer({ navigate }) {
   return (
     <footer className="footer">
@@ -491,8 +633,8 @@ export function TopTraders({ rows = [] }) {
   return (
     <section className="sidebar-panel">
       <div className="panel-head">
-        <h2>Top Traders</h2>
-        <span>return</span>
+        <h2>Leaderboard</h2>
+        <span>soon</span>
       </div>
       <div className="leaderboard-mini">
         {rows.length ? (
@@ -505,7 +647,7 @@ export function TopTraders({ rows = [] }) {
           ))
         ) : (
           <div className="empty-state compact">
-            Leaderboard opens after resolved markets publish private reputation aggregates.
+            Coming soon. Private reputation opens after resolved markets publish Arcium aggregates.
           </div>
         )}
       </div>

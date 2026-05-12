@@ -61,6 +61,24 @@ a {
   text-decoration: none;
 }
 
+.lock-icon {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  color: currentColor;
+  vertical-align: -2px;
+  flex: 0 0 auto;
+}
+
+.lock-icon path,
+.lock-icon rect {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 main {
   min-height: calc(100vh - 52px);
 }
@@ -112,17 +130,21 @@ main {
   gap: 4px;
 }
 
-.nav-links a {
+.nav-links a,
+.nav-links button {
   min-height: 30px;
   padding: 8px 11px;
+  border: 0;
   border-radius: 100px;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 15px;
   transition: background-color 150ms ease, color 150ms ease;
 }
 
 .nav-links a:hover,
-.nav-links a.active {
+.nav-links a.active,
+.nav-links button:hover {
   background: var(--bg-raised);
   color: var(--text-primary);
 }
@@ -893,6 +915,8 @@ main {
 }
 
 .lock-mark {
+  width: 14px;
+  height: 14px;
   color: var(--yes-text);
 }
 
@@ -1473,6 +1497,12 @@ main {
   font-size: 12px;
 }
 
+.teal-note {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+
 .credential-row span {
   padding: 5px 8px;
   border: 1px solid var(--border);
@@ -1483,6 +1513,9 @@ main {
 }
 
 .activity-list > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   padding: 10px;
   background: var(--bg-raised);
   color: var(--text-secondary);
@@ -1547,6 +1580,52 @@ main {
 .criteria-panel p {
   margin: 0;
   padding: 0 16px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.convert-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.convert-panel .section-header {
+  margin: 0;
+}
+
+.conversion-form {
+  display: grid;
+  gap: 12px;
+}
+
+.conversion-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.conversion-form label span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.compact-seed {
+  align-items: start;
+}
+
+.conversion-notice {
+  display: grid;
+  gap: 12px;
+}
+
+.conversion-notice h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.conversion-notice p {
+  margin: 0;
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
@@ -1878,6 +1957,9 @@ main {
 }
 
 .privacy-box strong {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
   color: var(--yes-text);
 }
 
@@ -2038,6 +2120,77 @@ main {
   max-width: 860px;
 }
 
+.coming-soon-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.coming-soon-copy {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 12px;
+  min-height: 220px;
+}
+
+.coming-soon-copy h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.coming-soon-copy p:not(.eyebrow) {
+  max-width: 520px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.coming-soon-metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.coming-soon-metrics > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+
+.coming-soon-metrics span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.coming-soon-metrics strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.coming-soon-metrics small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.coming-soon-tiers {
+  margin-top: 0;
+}
+
 .leaderboard-tabs {
   margin-bottom: 12px;
 }
@@ -2117,6 +2270,89 @@ main {
 .modal {
   width: min(460px, 100%);
   padding: 18px;
+}
+
+.how-modal {
+  width: min(620px, 100%);
+}
+
+.how-progress {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 14px 0;
+}
+
+.how-progress button {
+  height: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 100px;
+  background: var(--bg-raised);
+  transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.how-progress button.active {
+  background: var(--yes-strong);
+}
+
+.how-slide {
+  display: grid;
+  gap: 14px;
+  min-height: 270px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+
+.how-step {
+  width: fit-content;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  color: var(--yes-text);
+  font-size: 12px;
+}
+
+.how-slide p,
+.how-arcium span {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.how-points {
+  display: grid;
+  gap: 9px;
+}
+
+.how-points div,
+.how-arcium {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.how-points .lock-icon {
+  margin-top: 3px;
+  color: var(--yes-strong);
+}
+
+.how-arcium {
+  align-items: center;
+  padding-top: 2px;
+}
+
+.how-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .wallet-options,
@@ -2341,7 +2577,8 @@ textarea {
 @media (max-width: 1024px) {
   .markets-dashboard,
   .detail-grid,
-  .room-detail-grid {
+  .room-detail-grid,
+  .coming-soon-panel {
     grid-template-columns: 1fr;
   }
 
@@ -2383,10 +2620,11 @@ textarea {
     justify-content: space-around;
   }
 
-  .nav-links a {
+  .nav-links a,
+  .nav-links button {
     display: grid;
     place-items: center;
-    min-width: 70px;
+    min-width: 60px;
     min-height: 42px;
     padding: 6px 8px;
     border-radius: 6px;

@@ -8,6 +8,7 @@ import {
   ArciumBadge,
   CategoryPill,
   ExpertSignalBar,
+  LockIcon,
   OddsBar,
   ProbabilityDisplay,
   SectionHeader,
@@ -24,6 +25,7 @@ export function MarketDetailPage({
   onConnect,
   onStake,
   onResolveMarket,
+  onConvertPolymarket,
   onLoadUserStakeCommitments,
   onLoadMarketStakeCommitments,
   onQueueArciumSettlement,
@@ -49,6 +51,10 @@ export function MarketDetailPage({
   const [creatorSettlementLoading, setCreatorSettlementLoading] = useState(false);
   const [creatorSettlementMessage, setCreatorSettlementMessage] = useState('');
   const [payingCommitment, setPayingCommitment] = useState('');
+  const [conversionOpen, setConversionOpen] = useState(false);
+  const [conversionDraft, setConversionDraft] = useState(() => makeConversionDraft(null));
+  const [conversionPhase, setConversionPhase] = useState('');
+  const [conversionMessage, setConversionMessage] = useState('');
 
   useEffect(() => {
     setSettlementRows([]);
@@ -57,6 +63,10 @@ export function MarketDetailPage({
     setCreatorSettlementRows([]);
     setCreatorSettlementMessage('');
     setPayingCommitment('');
+    setConversionOpen(false);
+    setConversionDraft(makeConversionDraft(market));
+    setConversionPhase('');
+    setConversionMessage('');
   }, [market?.id, wallet]);
 
   if (!market) {
@@ -103,6 +113,13 @@ export function MarketDetailPage({
       return;
     }
 
+    if (!isNativeMarket) {
+      setStakeNoticeType('warning');
+      setSuccess('Convert this Polymarket signal into a ForeCast-native market before trading with $CAST.');
+      setConversionOpen(true);
+      return;
+    }
+
     try {
       setPhase('Preparing stake...');
       await wait(450);
@@ -112,7 +129,7 @@ export function MarketDetailPage({
       if (arciumResult.mode !== 'encrypted_payload') {
         setPhase('');
         setStakeNoticeType('warning');
-        setSuccess(`🔒 ${arciumResult.message}`);
+        setSuccess(arciumResult.message);
         return;
       }
 
@@ -132,9 +149,9 @@ export function MarketDetailPage({
       setStakeProof(stakeResult);
       if (stakeResult.settlementRegistration?.status === 'failed') {
         setStakeNoticeType('warning');
-        setSuccess(`🔒 Stake recorded, but settlement registration needs the Forecast server: ${stakeResult.settlementRegistration.error}`);
+        setSuccess(`Stake recorded, but settlement registration needs the Forecast server: ${stakeResult.settlementRegistration.error}`);
       } else {
-        setSuccess(`🔒 Position encrypted and recorded on Solana. Tx ${truncateAddress(stakeResult.signature)}.`);
+        setSuccess(`Position encrypted and recorded on Solana. Tx ${truncateAddress(stakeResult.signature)}.`);
       }
       setActivity((items) => [{ time: 'now', side: position }, ...items.slice(0, 5)]);
     } catch (error) {
@@ -172,6 +189,28 @@ export function MarketDetailPage({
     } catch (error) {
       setResolutionPhase('');
       setResolutionMessage(error.message || 'Market resolution failed.');
+    }
+  }
+
+  async function convertPolymarket(event) {
+    event.preventDefault();
+    if (!onConvertPolymarket || conversionPhase) return;
+
+    if (!connected) {
+      setConversionMessage('Connect Phantom or Backpack before converting this market.');
+      onConnect?.();
+      return;
+    }
+
+    try {
+      setConversionPhase('Creating ForeCast-native market...');
+      setConversionMessage('');
+      await onConvertPolymarket(market, conversionDraft);
+      setConversionPhase('');
+      setConversionMessage('Converted to a native Forecast market.');
+    } catch (error) {
+      setConversionPhase('');
+      setConversionMessage(error.message || 'Market conversion failed.');
     }
   }
 
@@ -318,14 +357,96 @@ export function MarketDetailPage({
           {market.expert && (
             <section className="oracle-detail">
               <div className="oracle-title">
-                <h2>🔒 Expert Oracle Signal</h2>
+                <h2><LockIcon /> Expert Oracle Signal</h2>
                 <span>{market.expert.text}</span>
               </div>
               <ExpertSignalBar signal={market.expert} />
               <div className="credential-row">
                 {market.expert.credentials.map((credential) => <span key={credential}>{credential}</span>)}
               </div>
-              <p className="teal-note">🔒 Individual opinions encrypted by Arcium. Aggregate only.</p>
+              <p className="teal-note"><LockIcon /> Individual opinions encrypted by Arcium. Aggregate only.</p>
+            </section>
+          )}
+
+          {!isNativeMarket && (
+            <section className="criteria-panel convert-panel">
+              <SectionHeader
+                title="Convert To ForeCast Native"
+                text="Polymarket data is read-only signal. Convert it to create a ForeCast-native $CAST market with encrypted staking."
+                action={(
+                  <button className="btn btn-secondary" type="button" onClick={() => setConversionOpen((open) => !open)}>
+                    {conversionOpen ? 'Hide' : 'Convert'}
+                  </button>
+                )}
+              />
+              {conversionOpen && (
+                <form className="conversion-form" onSubmit={convertPolymarket}>
+                  <div className="two-column">
+                    <label>
+                      <span>Resolution Date</span>
+                      <input
+                        className="input"
+                        type="date"
+                        required
+                        min={new Date().toISOString().slice(0, 10)}
+                        value={conversionDraft.resolutionDate}
+                        onChange={(event) => setConversionDraft((draft) => ({ ...draft, resolutionDate: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      <span>Resolution Time</span>
+                      <input
+                        className="input"
+                        type="time"
+                        required
+                        value={conversionDraft.resolutionTime}
+                        onChange={(event) => setConversionDraft((draft) => ({ ...draft, resolutionTime: event.target.value }))}
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    <span>Resolution Criteria</span>
+                    <textarea
+                      className="input"
+                      rows="4"
+                      required
+                      value={conversionDraft.resolutionCriteria}
+                      onChange={(event) => setConversionDraft((draft) => ({ ...draft, resolutionCriteria: event.target.value }))}
+                    />
+                  </label>
+                  <div className="seed-panel compact-seed">
+                    <div>
+                      <span className="field-label">Optional Seed Stake</span>
+                      <p>Add first-side liquidity during conversion.</p>
+                    </div>
+                    <div className="seed-controls">
+                      <input
+                        className="input"
+                        placeholder="Amount"
+                        inputMode="numeric"
+                        value={conversionDraft.seedAmount}
+                        onChange={(event) => setConversionDraft((draft) => ({ ...draft, seedAmount: event.target.value.replace(/[^0-9]/g, '') }))}
+                      />
+                      <div className="mini-toggle">
+                        {['YES', 'NO'].map((side) => (
+                          <button
+                            type="button"
+                            key={side}
+                            className={conversionDraft.seedSide === side ? 'selected' : ''}
+                            onClick={() => setConversionDraft((draft) => ({ ...draft, seedSide: side }))}
+                          >
+                            {side}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <button className="btn btn-primary btn-full" type="submit" disabled={Boolean(conversionPhase)}>
+                    {conversionPhase || 'Create Native Market'}
+                  </button>
+                  {conversionMessage && <p className="teal-note">{conversionMessage}</p>}
+                </form>
+              )}
             </section>
           )}
 
@@ -344,8 +465,8 @@ export function MarketDetailPage({
                   <div className="trade-row" key={`${item.time}-${item.side}-${index}`}>
                     <span>{item.time}</span>
                     <strong className={item.side === 'YES' ? 'yes' : 'no'}>{item.side}</strong>
-                    <span>🔒</span>
-                    <span>🔒</span>
+                    <span><LockIcon /></span>
+                    <span><LockIcon /></span>
                     <span>anon</span>
                   </div>
                 ))
@@ -360,7 +481,7 @@ export function MarketDetailPage({
                 <AnimatePresence initial={false}>
                   {activity.map((item, index) => (
                     <motion.div key={`${item.time}-${item.side}-${index}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                      🔒 Anonymous bought [ENCRYPTED] {item.side} - {item.time}
+                      <LockIcon /> Anonymous bought [ENCRYPTED] {item.side} - {item.time}
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -529,6 +650,17 @@ export function MarketDetailPage({
         </div>
 
         <aside className="stake-card order-panel">
+          {!isNativeMarket && (
+            <div className="conversion-notice">
+              <SourceBadge source="Polymarket" />
+              <h3>Convert before trading</h3>
+              <p>This market is live Polymarket signal only. Create a ForeCast-native copy to enable private $CAST staking.</p>
+              <button className="btn btn-primary btn-full" type="button" onClick={() => setConversionOpen(true)}>Convert Market</button>
+            </div>
+          )}
+
+          {isNativeMarket && (
+            <>
           <div className="trade-ticket-head">
             <div className="trade-tabs">
               <button type="button" className="active">Buy</button>
@@ -626,6 +758,8 @@ export function MarketDetailPage({
               )}
             </motion.div>
           )}
+            </>
+          )}
         </aside>
       </div>
     </div>
@@ -634,6 +768,22 @@ export function MarketDetailPage({
 
 function explorerAccount(address) {
   return `https://explorer.solana.com/address/${address}?cluster=devnet`;
+}
+
+function makeConversionDraft(market) {
+  const sourceEnd = Number(market?.endDateTs || 0);
+  const fallback = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const resolutionDate = new Date(sourceEnd > Date.now() ? sourceEnd : fallback.getTime());
+
+  return {
+    resolutionDate: resolutionDate.toISOString().slice(0, 10),
+    resolutionTime: '23:59',
+    seedAmount: '',
+    seedSide: 'YES',
+    resolutionCriteria: market
+      ? `Resolve using the linked Polymarket market "${market.title}" and public evidence available at resolution time.`
+      : '',
+  };
 }
 
 function settlementHint(status, isResolved) {

@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState } from 'react';
-import { PageHeader } from '../components/Primitives.jsx';
+import { LockIcon, PageHeader } from '../components/Primitives.jsx';
 import { rooms } from '../data/forecastData.js';
 import { formatCast } from '../lib/formatters.js';
 
@@ -16,7 +16,7 @@ export function RoomsPage({ navigate }) {
 
   return (
     <div className="page">
-      <PageHeader title="DAO Rooms" subtitle="Private prediction markets for communities" action={<button className="btn btn-primary" onClick={() => setModalOpen(true)}>+ Create Room</button>} />
+      <PageHeader title="DAO Rooms" subtitle="Permissioned room preview. Onchain private rooms are coming soon." action={<button className="btn btn-primary" onClick={() => setModalOpen(true)}>+ Create Room</button>} />
 
       {visibleRooms.length ? (
         <div className="rooms-grid">
@@ -33,7 +33,7 @@ export function RoomsPage({ navigate }) {
               <div className="room-stats">
                 <span>{formatCast(room.members)} members</span>
                 <span>{room.activeMarkets} active markets</span>
-                <span className="private-pill">🔒 Private</span>
+                <span className="private-pill"><LockIcon /> Preview</span>
               </div>
               <div className="room-actions">
                 <button className="btn btn-secondary" onClick={() => navigate(`/rooms/${room.id}`)}>View</button>
@@ -44,7 +44,7 @@ export function RoomsPage({ navigate }) {
         </div>
       ) : (
         <section className="empty-state">
-          No DAO rooms have been created in this session. Create one to configure a private room shell; onchain room persistence is the next integration pass.
+          No DAO rooms have been created in this session. Create one to preview room setup; onchain room persistence is the next integration pass.
         </section>
       )}
 
@@ -94,9 +94,9 @@ function CreateRoomModal({ onClose, onCreate }) {
         <label><span>Room name</span><input className="input" value={name} onChange={(event) => setName(event.target.value)} required /></label>
         <label><span>Description</span><textarea className="input" value={description} onChange={(event) => setDescription(event.target.value)} rows="3" required /></label>
         <label><span>Category</span><select className="input" value={category} onChange={(event) => setCategory(event.target.value)}><option>DeFi</option><option>Trading</option><option>Sports</option><option>Research</option><option>Governance</option></select></label>
-        <div className="privacy-line">All members can see the leaderboard. Positions stay private.</div>
+        <div className="privacy-line">Preview only. Real membership gating and permissioned Arcium clusters are not live yet.</div>
         <label><span>Member invite</span><textarea className="input mono" value={invites} onChange={(event) => setInvites(event.target.value)} rows="3" placeholder="Add wallet addresses, one per line" /></label>
-        <button className="btn btn-primary btn-full" type="submit">Create Room - powered by Arcium permissioned cluster</button>
+        <button className="btn btn-primary btn-full" type="submit">Create Room Preview</button>
       </motion.form>
     </motion.div>
   );

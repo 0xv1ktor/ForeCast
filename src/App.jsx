@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
-import { Navbar, Toast, WalletModal } from './components/Primitives.jsx';
+import { HowItWorksModal, Navbar, Toast, WalletModal } from './components/Primitives.jsx';
 import { emptyWallet, markets } from './data/forecastData.js';
 import {
   createForecastMarket,
@@ -37,7 +37,7 @@ function App() {
   const [wallet, setWallet] = useState(() => localStorage.getItem('forecast-wallet') || emptyWallet);
   const [balance, setBalance] = useState(() => Number(localStorage.getItem('forecast-balance') || (localStorage.getItem('forecast-wallet-connected') ? 1000 : 0)));
   const [connectStatus, setConnectStatus] = useState('');
-  const [selectedWallet, setSelectedWallet] = useState('');
+  const [selectedWallet, setSelectedWallet] = useState(() => localStorage.getItem('forecast-wallet-name') || '');
   const [toast, setToast] = useState(null);
   const [walletProvider, setWalletProvider] = useState(null);
   const [refillStatus, setRefillStatus] = useState(null);
@@ -48,6 +48,7 @@ function App() {
   const [marketOddsOverrides, setMarketOddsOverrides] = useState(() => readCachedMarketOddsOverrides());
   const [polymarketStatus, setPolymarketStatus] = useState('idle');
   const [polymarketError, setPolymarketError] = useState('');
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
 
   useEffect(() => {
     const onPop = () => setPath(window.location.pathname);
@@ -62,6 +63,44 @@ function App() {
       localStorage.setItem('forecast-balance', String(balance));
     }
   }, [connected, wallet, balance]);
+
+  useEffect(() => {
+    if (!connected || walletProvider) return undefined;
+
+    let cancelled = false;
+
+    async function restoreWalletProvider() {
+      const savedWalletName = localStorage.getItem('forecast-wallet-name') || selectedWallet || 'Phantom';
+      const provider = getInjectedForecastWallet(savedWalletName);
+      if (!provider) return;
+
+      try {
+        const connectionResult = !provider.publicKey && provider.connect
+          ? await provider.connect({ onlyIfTrusted: true })
+          : null;
+        const publicKey = connectionResult?.publicKey || provider.publicKey;
+        if (!publicKey || cancelled) return;
+
+        const connectedProvider = provider.publicKey ? provider : walletProviderWithPublicKey(provider, publicKey);
+        setWalletProvider(connectedProvider);
+        setWallet(publicKey.toString());
+        setSelectedWallet(savedWalletName);
+
+        const sync = await syncForecastWallet({ walletProvider: connectedProvider });
+        if (cancelled) return;
+        setBalance(sync.balance);
+        setRefillStatus(sync.refill);
+      } catch {
+        // Silent restore should never interrupt page load. The Connect button can still do an explicit approval.
+      }
+    }
+
+    restoreWalletProvider();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, walletProvider, selectedWallet]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -125,6 +164,7 @@ function App() {
         setWalletProvider(connectedProvider);
         setWallet(publicKey.toString());
         setConnected(true);
+        localStorage.setItem('forecast-wallet-name', name);
         setConnectStatus('Syncing Forecast faucet...');
         const sync = await syncForecastWallet({
           walletProvider: connectedProvider,
@@ -185,6 +225,7 @@ function App() {
     localStorage.removeItem('forecast-wallet-connected');
     localStorage.removeItem('forecast-wallet');
     localStorage.removeItem('forecast-balance');
+    localStorage.removeItem('forecast-wallet-name');
     setConnected(false);
     setWalletProvider(null);
     setWallet(emptyWallet);
@@ -247,6 +288,23 @@ function App() {
     showToast('Market created on Solana devnet.');
     navigate(`/markets/${createdMarket.id}`);
     return result;
+  }
+
+  async function handleConvertPolymarket(sourceMarket, conversionDraft) {
+    const sourceLabel = sourceMarket.slug || sourceMarket.conditionId || sourceMarket.createdBy || sourceMarket.id;
+    return handleCreateMarket({
+      question: sourceMarket.title,
+      category: sourceMarket.category || 'World Events',
+      resolutionDate: conversionDraft.resolutionDate,
+      resolutionTime: conversionDraft.resolutionTime,
+      resolutionCriteria: conversionDraft.resolutionCriteria
+        || `Resolve using the original Polymarket source market (${sourceLabel}) and any public evidence cited by that market.`,
+      marketType: 'Public Market',
+      oracleEnabled: false,
+      credentials: [],
+      seedAmount: conversionDraft.seedAmount,
+      seedSide: conversionDraft.seedSide || 'YES',
+    });
   }
 
   async function handleSubmitStake(stakeDraft) {
@@ -333,7 +391,7 @@ function App() {
     return result;
   }
 
-  const appMarkets = useMemo(() => {
+  const allMarkets = useMemo(() => {
     const nativeMarkets = markets.filter((market) => market.type === 'native');
     const polymarketMarkets = livePolymarkets.length
       ? livePolymarkets
@@ -349,17 +407,21 @@ function App() {
     ].map((market) => applyMarketOddsOverride(market, marketOddsOverrides));
   }, [createdMarkets, onchainMarkets, livePolymarkets, marketOddsOverrides]);
 
+  const activeMarkets = useMemo(() => (
+    allMarkets.filter((market) => !isResolvedMarket(market))
+  ), [allMarkets]);
+
   const route = useMemo(() => {
-    if (path === '/') return <LandingPage navigate={navigate} markets={appMarkets} />;
-    if (path === '/markets') return <MarketsPage navigate={navigate} markets={appMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
-    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={appMarkets} balance={balance} connected={Boolean(walletProvider)} wallet={wallet} onConnect={beginConnect} onStake={handleSubmitStake} onResolveMarket={handleResolveMarket} onLoadUserStakeCommitments={handleLoadUserStakeCommitments} onLoadMarketStakeCommitments={handleLoadMarketStakeCommitments} onQueueArciumSettlement={handleQueueArciumSettlement} onSettleAndPayStake={handleSettleAndPayStake} />;
+    if (path === '/') return <LandingPage navigate={navigate} markets={activeMarkets} />;
+    if (path === '/markets') return <MarketsPage navigate={navigate} markets={activeMarkets} polymarketStatus={polymarketStatus} polymarketError={polymarketError} />;
+    if (path.startsWith('/markets/')) return <MarketDetailPage id={path.split('/')[2]} markets={allMarkets} balance={balance} connected={Boolean(walletProvider)} wallet={wallet} onConnect={beginConnect} onStake={handleSubmitStake} onResolveMarket={handleResolveMarket} onConvertPolymarket={handleConvertPolymarket} onLoadUserStakeCommitments={handleLoadUserStakeCommitments} onLoadMarketStakeCommitments={handleLoadMarketStakeCommitments} onQueueArciumSettlement={handleQueueArciumSettlement} onSettleAndPayStake={handleSettleAndPayStake} />;
     if (path === '/create') return <CreateMarketPage connected={connected} walletProvider={walletProvider} onConnect={beginConnect} onCreateMarket={handleCreateMarket} />;
     if (path.startsWith('/profile/')) return <ProfilePage address={decodeURIComponent(path.split('/')[2] || '')} balance={balance} connected={connected} />;
     if (path === '/rooms') return <RoomsPage navigate={navigate} />;
-    if (path.startsWith('/rooms/')) return <RoomDetailPage id={path.split('/')[2]} navigate={navigate} markets={appMarkets} />;
+    if (path.startsWith('/rooms/')) return <RoomDetailPage id={path.split('/')[2]} navigate={navigate} markets={activeMarkets} />;
     if (path === '/leaderboard') return <LeaderboardPage />;
-    return <LandingPage navigate={navigate} markets={appMarkets} />;
-  }, [path, appMarkets, polymarketStatus, polymarketError, connected, walletProvider, wallet, balance]);
+    return <LandingPage navigate={navigate} markets={activeMarkets} />;
+  }, [path, allMarkets, activeMarkets, polymarketStatus, polymarketError, connected, walletProvider, wallet, balance]);
 
   return (
     <div className="app-shell">
@@ -372,6 +434,7 @@ function App() {
         onCopyAddress={handleCopyAddress}
         onDisconnect={handleDisconnectWallet}
         onRefill={handleDailyRefill}
+        onHowItWorks={() => setHowItWorksOpen(true)}
         refillStatus={refillStatus}
         refillLoading={refillLoading}
       />
@@ -381,6 +444,9 @@ function App() {
         </motion.main>
       </AnimatePresence>
       <AnimatePresence>
+        {howItWorksOpen && (
+          <HowItWorksModal onClose={() => setHowItWorksOpen(false)} />
+        )}
         {walletModal && (
           <WalletModal
             status={connectStatus}
@@ -460,6 +526,11 @@ function applyMarketOddsOverride(market, overrides) {
     return { ...market, aggregateStatus: 'pending_mpc' };
   }
   return market;
+}
+
+function isResolvedMarket(market = {}) {
+  const status = String(market.status || '').toLowerCase();
+  return status === 'resolved' || status === 'cancelled';
 }
 
 function buildOddsUpdateFromStakeResult(market, stakeDraft, stakeResult) {

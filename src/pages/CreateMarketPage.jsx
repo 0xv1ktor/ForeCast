@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { categoryOptions, credentialOptions } from '../data/forecastData.js';
-import { PageHeader } from '../components/Primitives.jsx';
+import { LockIcon, PageHeader } from '../components/Primitives.jsx';
 
 export function CreateMarketPage({ connected, walletProvider, onConnect, onCreateMarket }) {
   const [oracle, setOracle] = useState(true);
@@ -61,7 +61,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
 
   return (
     <div className="page narrow-page">
-      <PageHeader title="Create Market" subtitle="Launch a Forecast-native market with encrypted stakes from the first position." />
+      <PageHeader title="Create Market" subtitle="Launch a ForeCast-native market with encrypted stakes from the first position." />
 
       <form className="create-form" onSubmit={submitMarket}>
         <label>
@@ -193,7 +193,7 @@ export function CreateMarketPage({ connected, walletProvider, onConnect, onCreat
             </>
           ) : 'Create Market'}
         </button>
-        <p className="teal-note center">🔒 All stakes on this market will be encrypted by Arcium MPC</p>
+        <p className="teal-note center"><LockIcon /> All stakes on this market will be encrypted by Arcium MPC</p>
         {notice && (
           <motion.div
             className={`success-box ${notice.type === 'warning' ? 'warning-box' : ''}`}

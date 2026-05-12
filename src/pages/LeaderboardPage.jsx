@@ -1,65 +1,46 @@
-import { AccuracyBadge, PageHeader } from '../components/Primitives.jsx';
-import { leaderboardRows, tierDetails } from '../data/forecastData.js';
+import { AccuracyBadge, ArciumBadge, PageHeader } from '../components/Primitives.jsx';
+import { tierDetails } from '../data/forecastData.js';
 
 export function LeaderboardPage() {
-  const topThree = leaderboardRows.slice(0, 3);
-  const hasRows = leaderboardRows.length > 0;
-
   return (
     <div className="page leaderboard-page">
-      <PageHeader title="Global Leaderboard" subtitle="Ranked by accuracy. Positions always private." />
+      <PageHeader
+        title="Global Leaderboard"
+        subtitle="Private reputation ranking is coming soon."
+      />
 
-      <div className="tabs leaderboard-tabs">
-        {['All Time', 'This Month', 'This Week'].map((tab, index) => (
-          <button className={index === 0 ? 'active' : ''} key={tab}>{tab}</button>
-        ))}
-      </div>
-
-      {hasRows ? (
-        <section className="podium-grid">
-          {topThree.map(([tier, address, winRate], index) => (
-            <article className={`podium-card podium-${index + 1}`} key={address}>
-              <span className="rank">#{index + 1}</span>
-              <AccuracyBadge tier={tier} />
-              <strong>{address}</strong>
-              <em>{winRate}</em>
-            </article>
-          ))}
-        </section>
-      ) : (
-        <section className="empty-state leaderboard-empty">
-          No public leaderboard rows yet. Reputation is computed from resolved markets, then Arcium reveals only the public rank, tier, and win-rate aggregate.
-        </section>
-      )}
-
-      <section className="leaderboard-table">
-        <div className="table-row table-head">
-          <span>Rank</span>
-          <span>Username</span>
-          <span>Volume</span>
-          <span>Win Rate</span>
-          <span>Tier</span>
-          <span>Total Return</span>
+      <section className="coming-soon-panel">
+        <div className="coming-soon-copy">
+          <p className="eyebrow">Reputation Layer</p>
+          <h2>Coming soon</h2>
+          <p>
+            ForeCast will rank wallets after enough markets resolve and Arcium
+            can publish reputation aggregates without exposing positions,
+            participation counts, or trade history.
+          </p>
+          <ArciumBadge short />
         </div>
-        {hasRows ? (
-          leaderboardRows.map(([tier, address, winRate], index) => (
-            <div className="table-row" key={`${address}-${index}`}>
-              <span className="rank">{index + 1}</span>
-              <span className="mono">{address}</span>
-              <span>◎ {(92_000 - index * 2_730).toLocaleString()}</span>
-              <strong>{winRate}</strong>
-              <span>{tier}</span>
-              <span className="positive">+{(124.8 - index * 4.7).toFixed(1)}%</span>
-            </div>
-          ))
-        ) : (
-          <div className="empty-state compact">
-            Waiting for the first settled Forecast markets.
+
+        <div className="coming-soon-metrics" aria-label="Leaderboard launch criteria">
+          <div>
+            <span>01</span>
+            <strong>Resolved markets</strong>
+            <small>Outcome data feeds the private scoring pass.</small>
           </div>
-        )}
+          <div>
+            <span>02</span>
+            <strong>MPC reputation</strong>
+            <small>Accuracy is computed over encrypted histories.</small>
+          </div>
+          <div>
+            <span>03</span>
+            <strong>Public tier only</strong>
+            <small>Rank, badge, and win-rate aggregate become visible.</small>
+          </div>
+        </div>
       </section>
 
-      <section className="tier-legend">
+      <section className="tier-legend coming-soon-tiers">
         {Object.entries(tierDetails).map(([tier, detail]) => (
           <div key={tier}>
             <AccuracyBadge tier={tier} />
@@ -67,8 +48,6 @@ export function LeaderboardPage() {
           </div>
         ))}
       </section>
-
-      <p className="teal-note center">Arcium MPC ensures no participation data is ever exposed.</p>
     </div>
   );
 }
