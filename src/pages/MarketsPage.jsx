@@ -33,13 +33,15 @@ export function MarketsPage({ navigate, markets, polymarketStatus, polymarketErr
     <div className="page">
       <PageHeader title="Markets" subtitle="Browse all prediction markets" action={<button className="btn btn-primary" onClick={() => navigate('/create')}>Create Market</button>} />
 
-      <IntegrationStatus
-        status={polymarketStatus}
-        error={polymarketError}
-        readyText="Live Polymarket markets loaded from Gamma API"
-        loadingText="Loading live Polymarket markets..."
-        fallbackText="Live Polymarket discovery unavailable"
-      />
+      {polymarketStatus !== 'ready' && (
+        <IntegrationStatus
+          status={polymarketStatus}
+          error={polymarketError}
+          readyText=""
+          loadingText="Loading live Polymarket markets..."
+          fallbackText="Live Polymarket discovery unavailable"
+        />
+      )}
 
       <section className="markets-dashboard">
         <main className="markets-main">

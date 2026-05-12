@@ -149,6 +149,18 @@ main {
   color: var(--text-primary);
 }
 
+.nav-links .how-nav-link {
+  border: 1px solid rgba(55, 138, 221, 0.5);
+  background: rgba(55, 138, 221, 0.12);
+  color: #7fc3ff;
+}
+
+.nav-links .how-nav-link:hover {
+  border-color: var(--info);
+  background: rgba(55, 138, 221, 0.2);
+  color: #c6e6ff;
+}
+
 .wallet-zone {
   display: flex;
   justify-content: flex-end;

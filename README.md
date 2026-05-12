@@ -1,29 +1,64 @@
-# Forecast
+# ForeCast
 
-Forecast is a privacy-enhanced prediction and opinion market built for Solana devnet and Arcium MPC.
+**The market knows.**
 
-Tagline: **Stake your belief. Keep your position private.**
+ForeCast is a privacy-focused prediction market on Solana devnet. Users trade with `$CAST`, create native markets, import live Polymarket signals, and use Arcium MPC so individual positions stay private while public market signals remain visible.
 
-The current build uses a real Solana devnet Forecast program, a real devnet `$CAST` mint/faucet, live Polymarket discovery, and an Arcium MXE flow for private stake computation.
+## What Makes It Different
 
-## Core Idea
+Most prediction markets expose too much user behavior. ForeCast keeps the sensitive parts private:
 
-Traditional prediction markets expose too much about individual behavior. Forecast keeps individual stakes, positions, expert oracle inputs, and reputation history private.
-
-Public:
-- Market questions and aggregate odds
-- Final outcomes
-- Aggregate expert signals
-- Accuracy tier badges
-
-Private:
 - Individual YES/NO positions
 - Stake amounts
-- Market participation history
-- Expert opinions
-- Reputation history underneath the public badge
+- Participation history
+- Settlement and reputation inputs
 
-## Commands
+Public data still stays useful:
+
+- Market questions
+- Aggregate odds
+- Volume
+- Final outcome
+- Explorer links for devnet transactions
+
+## Arcium Privacy Layer
+
+ForeCast uses Arcium MPC for the parts of the market that should stay private.
+
+At stake time, the app sends the user's market id, side, and amount through the `submit_private_stake_v2` Arcium computation. ForeCast then records a public stake commitment on Solana, but the user's actual position is not shown in the UI or exposed as public market activity.
+
+At settlement time, after the market creator posts the final outcome, ForeCast uses the `compute_private_settlement` Arcium computation to calculate the payout reference for each private commitment. The public app can show that a commitment exists and whether it has been settled, but it does not reveal the user's original side or amount.
+
+In short:
+
+- Solana records the market, vault, faucet, commitments, and payout transactions.
+- Arcium handles private stake and payout computation.
+- ForeCast shows aggregate odds and final results, not individual positions.
+
+## Current Features
+
+- Solana devnet wallet connection with Phantom or Backpack
+- `$CAST` faucet: 1,000 initial tokens plus 100 daily refill
+- Native ForeCast market creation
+- Private `$CAST` staking on native markets
+- Creator-led market resolution
+- Arcium-powered private stake and settlement flow
+- Live Polymarket market discovery
+- Polymarket-to-native conversion before trading
+- Portfolio, rooms, and leaderboard preview surfaces
+- Single Vite/Node server for frontend and local API routes
+
+## Tech Stack
+
+- React + Vite
+- Solana Web3.js
+- Anchor
+- SPL Token
+- Arcium MPC
+- Polymarket Gamma API
+- Framer Motion
+
+## Getting Started
 
 Install dependencies:
 
@@ -31,10 +66,22 @@ Install dependencies:
 npm install
 ```
 
-Run locally:
+Create your local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Run the app:
 
 ```bash
 npm run dev
+```
+
+Open:
+
+```text
+http://localhost:5173
 ```
 
 Build for production:
@@ -43,153 +90,64 @@ Build for production:
 npm run build
 ```
 
-Serve the production build and API routes from one Node process:
+Serve the built app with the local API routes:
 
 ```bash
 npm start
 ```
 
-Local app URL:
+## Environment
 
-```text
-http://localhost:5173/
-```
+The repo includes `.env.example` with the current devnet configuration.
 
-## Demo Flow
-
-1. Open the landing page and point out the Arcium privacy positioning.
-2. Click **Browse Markets** and show Native vs Polymarket Event tabs.
-3. Open a live market detail page or create a native Forecast market.
-4. Choose YES or NO, enter a $CAST amount, and submit.
-5. Show the Arcium flow: preparing stake, encrypted MPC computation, Solana submission, success state, and Explorer links.
-6. Show recent activity where amounts and wallets are hidden after a stake is submitted.
-7. Open **Rooms** to show DAO private room shells and permissioned Arcium cluster positioning.
-8. Open **Leaderboard** to show the pending public reputation aggregate state.
-9. Use **Connect Wallet** with Phantom or Backpack to claim/sync the 1,000 $CAST faucet.
-
-## Routes
-
-- `/` - Landing page
-- `/markets` - Market browser with search, category filters, source tabs, and sorting
-- `/markets/:id` - Interactive market detail and encrypted stake flow
-- `/create` - Create market form with expert oracle and seed stake options
-- `/profile/:address` - Public profile with private activity and reputation badge
-- `/rooms` - DAO rooms list and create room modal
-- `/rooms/:id` - Room markets, permissioned cluster badge, and private leaderboard
-- `/leaderboard` - Global accuracy leaderboard
-
-## Frontend Structure
-
-```text
-src/
-  App.jsx                 # App shell: routing, wallet state, live data orchestration
-  main.jsx                # React entrypoint and browser polyfills
-  components/             # Reusable UI primitives and app chrome
-  data/                   # Static options and privacy tier metadata
-  integrations/           # Solana, Forecast, Arcium, and Polymarket adapters
-  lib/                    # Small shared helpers
-  pages/                  # Route-level screens
-  styles/                 # Global design system entrypoint and styling
-```
-
-The frontend is organized so product screens do not own wallet or API plumbing, and integrations do not own UI.
-
-## Current Phase
-
-The devnet integration layer is active:
-
-- Injected Phantom or Backpack wallet connection when available
-- Real devnet `$CAST` mint and Forecast faucet integration
-- Automatic first-time `1,000 $CAST` claim for connected wallets
-- Manual `100 $CAST` daily refill action, enforced by the Forecast program
-- Live Polymarket Gamma API market discovery
-- Arcium client SDK stake payload preparation behind environment config
-- Faucet contract source supports 1,000 initial $CAST plus 100 $CAST per day refill
-- Private stake commitment records and public aggregate odds update bridge
-- MVP market resolution by the creator wallet after the selected resolution date/time, against each market's criteria
-- Wallet-level settlement status lookup for encrypted stake commitments
-- Creator-triggered Arcium settlement queue plus payout transfer from the Forecast vault
-- Expert oracle, reputation, and room leaderboards remain future Arcium circuits
-
-## Real Integration Config
-
-Create a local `.env` from `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Required values:
+Important values:
 
 ```text
 VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
-VITE_POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
-VITE_ARCIUM_STAKE_API_URL=/stake
-VITE_ARCIUM_SETTLEMENT_API_URL=/settlement
-VITE_FORECAST_ODDS_API_URL=/odds/update
+VITE_FORECAST_PROGRAM_ID=6LVKicsAfSF9Ba5gZchdxgtP6hEdsQNqAaVZCqHHHz9L
+VITE_CAST_MINT=HW7wUzty3SXUC6WVmvfAkot16XxgW14grakSzaSv1BRy
 VITE_ARCIUM_MXE_PROGRAM_ID=3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK
 VITE_ARCIUM_CLUSTER_OFFSET=456
-VITE_ARCIUM_STAKE_INSTRUCTION=submit_private_stake_v2
-VITE_ARCIUM_SETTLEMENT_INSTRUCTION=compute_private_settlement
 ```
 
-The Arcium SDK runs in the Node/Vite server boundary because the package depends on Node crypto APIs. In development, `npm run dev` serves both the frontend and local API routes:
+The Arcium client runs through the local Node/Vite server boundary because the SDK depends on Node crypto APIs.
 
-```bash
-npm run dev
-```
+## How It Works
 
-For production-style local serving, build first and then run the single Node server:
+1. Connect Phantom or Backpack on Solana devnet.
+2. Claim or sync `$CAST` from the ForeCast faucet.
+3. Create a native market or convert a live Polymarket market into a native ForeCast market.
+4. Place a YES or NO trade with `$CAST`.
+5. Arcium handles the private computation path while ForeCast records the public commitment on Solana.
+6. After the resolution time, the market creator posts the final outcome.
+7. Settlement uses the Arcium computation result to pay the correct side from the ForeCast vault.
 
-```bash
-npm run build
-npm start
-```
-
-`npm start` serves `dist/` plus `POST /stake`, `POST /settlement/register`, `POST /settlement`, and `POST /odds/update` from the same process.
-
-## Integration Targets
-
-- Solana devnet program: `forecast` containing market factory, staking vault, and faucet instructions
-- SPL token: `$CAST`
-- Arcium MPC SDK at the staking, payout, reputation, expert oracle, and room leaderboard layers
-- Supabase tables: `markets`, `rooms`, `room_members`, `market_categories`
-- Polymarket Gamma API for market discovery and CLOB API for orderbook/pricing
-
-## Arcium MXE Source
-
-The first confidential instruction slice lives in:
+## Project Structure
 
 ```text
-arcium/forecast-mxe/encrypted-ixs/forecast_private_market.rs
+src/
+  App.jsx              App shell, routing, wallet state, market orchestration
+  components/          Reusable UI primitives and navigation
+  data/                Static app metadata and option lists
+  integrations/        Solana, ForeCast, Arcium, and Polymarket adapters
+  lib/                 Shared helpers
+  pages/               Route-level screens
+  styles/              Global UI system
+
+programs/
+  forecast/            Anchor program for markets, staking, faucet, settlement
+
+server/
+  arciumStakeService   Local API bridge for Arcium and Forecast actions
+
+arcium/
+  forecast-mxe/        Arcium MXE project and circuit artifacts
 ```
 
-It is designed to be copied into the Arcium project generated by `arcium init forecast-mxe`, then deployed to devnet cluster offset `456`.
-
-## Arcium Circuits
-
-Forecast uses two core Arcium computation definitions for the hackathon demo:
+## Devnet Addresses
 
 ```text
-submit_private_stake_v2
-compute_private_settlement
+ForeCast program: 6LVKicsAfSF9Ba5gZchdxgtP6hEdsQNqAaVZCqHHHz9L
+$CAST mint:       HW7wUzty3SXUC6WVmvfAkot16XxgW14grakSzaSv1BRy
+Arcium MXE:       3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK
 ```
-
-`submit_private_stake_v2` encrypts the market id, side, and amount at stake time. `compute_private_settlement` runs after creator resolution and computes whether the encrypted position won and what quoted payout should be attached to that commitment.
-
-Upload both `.arcis` files from the Arcium build folder to public storage, then initialize both computation definitions:
-
-```text
-arcium/forecast-mxe/forecast_mxe/build/submit_private_stake_v2.arcis
-arcium/forecast-mxe/forecast_mxe/build/compute_private_settlement.arcis
-```
-
-## Settlement Model
-
-Forecast records each private stake as a `StakeCommitment` account. After resolution, the app can show whether your wallet has a commitment for that market and whether it is still pending Arcium settlement, marked settlement-ready, or already claim-recorded.
-
-For the MVP, the market creator handles the settlement trigger. The creator loads encrypted stake commitments after resolution, queues Arcium settlement for each commitment, then pays from the settlement result. The Forecast program verifies the signer is the market creator, marks the commitment settlement-ready, and transfers `$CAST` from the Forecast vault to the stake owner's token account.
-
-Before creator payouts can work, the vault token account owner must be the Forecast config PDA. Re-running `scripts/initializeForecast.mjs` will set that authority when the current setup wallet still owns the vault.
-
-The local Forecast server keeps the private settlement input handle in memory when a stake is submitted, then binds it to the onchain `StakeCommitment` through `POST /settlement/register`. For the demo, settle freshly submitted stakes without restarting the server. A production keeper should store this handle in durable encrypted storage or derive it directly from Arcium callback state.

@@ -25,6 +25,8 @@ export async function fetchForecastPolymarkets({ limit = 10, signal } = {}) {
       const markets = records
         .map((record) => mapPolymarket(record.market, record.event))
         .filter(Boolean)
+        .filter(isActivePolymarket)
+        .sort(comparePolymarketRecency)
         .slice(0, limit);
 
       if (markets.length) return markets;
@@ -100,6 +102,8 @@ function mapPolymarket(raw, event) {
   const no = Math.max(0, 100 - yes);
   const volume = Number(raw.volumeNum ?? raw.volume ?? raw.volumeClob ?? raw.volume24hr ?? event?.volume ?? 0) || 0;
   const id = raw.slug || raw.id || raw.conditionId || raw.condition_id;
+  const endDateValue = raw.endDateIso || raw.endDate || raw.end_date_iso || event?.endDate;
+  const startDateValue = raw.startDate || raw.startDateIso || raw.start_date_iso || event?.startDate || event?.createdAt || raw.createdAt;
 
   return {
     id: `poly-live-${id}`,
@@ -112,13 +116,27 @@ function mapPolymarket(raw, event) {
     no,
     volume,
     volumeDisplay: formatUsdVolume(volume),
-    ends: formatEndDate(raw.endDateIso || raw.endDate || raw.end_date_iso || event?.endDate),
+    ends: formatEndDate(endDateValue),
+    endDateTs: readDateTs(endDateValue),
+    startDateTs: readDateTs(startDateValue),
     createdBy: raw.conditionId || raw.condition_id || raw.slug || id,
     conditionId: raw.conditionId || raw.condition_id,
     slug: raw.slug,
     clobTokenIds: parseJsonArray(raw.clobTokenIds || raw.clob_token_ids),
     resolutionSource: raw.resolutionSource || event?.resolutionSource,
   };
+}
+
+function isActivePolymarket(market) {
+  if (!market?.endDateTs) return false;
+  return market.endDateTs > Date.now();
+}
+
+function comparePolymarketRecency(a, b) {
+  const aFresh = a.startDateTs || a.endDateTs || 0;
+  const bFresh = b.startDateTs || b.endDateTs || 0;
+  if (bFresh !== aFresh) return bFresh - aFresh;
+  return Number(b.volume || 0) - Number(a.volume || 0);
 }
 
 function normalizeBaseUrl(url) {
@@ -191,4 +209,10 @@ function formatEndDate(value) {
     day: 'numeric',
     year: 'numeric',
   }).format(date);
+}
+
+function readDateTs(value) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }

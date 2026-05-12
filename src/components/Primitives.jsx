@@ -362,7 +362,7 @@ export function Navbar({
         <AppLink to={portfolioPath} navigate={navigate}>Portfolio</AppLink>
         <AppLink to="/leaderboard" navigate={navigate}>Leaderboard</AppLink>
         <AppLink to="/rooms" navigate={navigate}>Activity</AppLink>
-        <button type="button" onClick={onHowItWorks}>How It Works</button>
+        <button className="how-nav-link" type="button" onClick={onHowItWorks}>How It Works</button>
       </div>
       <div className="wallet-zone">
         {connected ? (
