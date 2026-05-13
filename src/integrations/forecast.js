@@ -26,6 +26,9 @@ const DEFAULT_MINT_AUTHORITY = '4mXVdXXaBaTqEf6gMvg9wifWVoNcKwA71tw1h9pHKHBr';
 const DEFAULT_VAULT_TOKEN_ACCOUNT = '8x8Fj94pvBz2xwxkgYrLpWrqND5tYeag8KGmL1vuyj7H';
 const DEFAULT_ARCIUM_MXE_PROGRAM_ID = '3Ayx79S2apLBQgSVNq3y2mcbsvQeq4ZUVaiYd2xo7WZK';
 const DEFAULT_ARCIUM_PROGRAM_ID = 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ';
+const DEFAULT_STAKE_API_URL = '/api/stake';
+const DEFAULT_SETTLEMENT_API_URL = '/api/settlement';
+const DEFAULT_ODDS_API_URL = '/api/odds/update';
 const CAST_DECIMALS = 6;
 const DAILY_REFILL_SECONDS = 86_400;
 const MAX_MARKET_QUESTION_LENGTH = 180;
@@ -70,6 +73,8 @@ const MARKET_OUTCOME_VARIANTS = {
 };
 
 export function getForecastRuntimeConfig() {
+  const arciumStakeApiUrl = normalizeForecastApiUrl(import.meta.env.VITE_ARCIUM_STAKE_API_URL, DEFAULT_STAKE_API_URL);
+
   return {
     rpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || DEFAULT_RPC_URL,
     programId: new PublicKey(import.meta.env.VITE_FORECAST_PROGRAM_ID || DEFAULT_FORECAST_PROGRAM_ID),
@@ -79,10 +84,12 @@ export function getForecastRuntimeConfig() {
     vaultTokenAccount: new PublicKey(import.meta.env.VITE_VAULT_TOKEN_ACCOUNT || DEFAULT_VAULT_TOKEN_ACCOUNT),
     arciumMxeProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || DEFAULT_ARCIUM_MXE_PROGRAM_ID),
     arciumProgramId: new PublicKey(import.meta.env.VITE_ARCIUM_PROGRAM_ID || DEFAULT_ARCIUM_PROGRAM_ID),
-    oddsApiUrl: import.meta.env.VITE_FORECAST_ODDS_API_URL || '',
-    arciumStakeApiUrl: import.meta.env.VITE_ARCIUM_STAKE_API_URL || '',
-    arciumSettlementApiUrl: import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL
-      || deriveSiblingApiUrl(import.meta.env.VITE_ARCIUM_STAKE_API_URL || '', '/settlement'),
+    oddsApiUrl: normalizeForecastApiUrl(import.meta.env.VITE_FORECAST_ODDS_API_URL, DEFAULT_ODDS_API_URL),
+    arciumStakeApiUrl,
+    arciumSettlementApiUrl: normalizeForecastApiUrl(
+      import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL,
+      deriveSiblingApiUrl(arciumStakeApiUrl, '/settlement') || DEFAULT_SETTLEMENT_API_URL,
+    ),
   };
 }
 
@@ -900,17 +907,33 @@ async function requestPublicOddsUpdate(config, stakeDraft, stakeResult) {
 
 function deriveSiblingApiUrl(url, siblingPath) {
   if (!url) return '';
-  if (url.startsWith('/')) return siblingPath;
+  const normalizedSibling = siblingPath.startsWith('/') ? siblingPath : `/${siblingPath}`;
+  if (url.startsWith('/api/') && !normalizedSibling.startsWith('/api/')) {
+    return `/api${normalizedSibling}`;
+  }
+  if (url.startsWith('/')) return normalizedSibling;
 
   try {
     const parsed = new URL(url);
-    parsed.pathname = siblingPath;
+    parsed.pathname = normalizedSibling;
     parsed.search = '';
     parsed.hash = '';
     return parsed.toString();
   } catch {
-    return siblingPath;
+    return normalizedSibling;
   }
+}
+
+function normalizeForecastApiUrl(value, fallback = '') {
+  const url = String(value || fallback || '').trim();
+  const apiRoutes = {
+    '/stake': '/api/stake',
+    '/settlement': '/api/settlement',
+    '/settlement/register': '/api/settlement/register',
+    '/odds/update': '/api/odds/update',
+  };
+
+  return apiRoutes[url] || url;
 }
 
 async function sendWalletTransaction({ connection, walletProvider, tx }) {

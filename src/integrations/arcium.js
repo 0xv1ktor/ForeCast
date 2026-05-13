@@ -1,10 +1,12 @@
 const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
+const DEFAULT_STAKE_API_URL = '/api/stake';
+const DEFAULT_SETTLEMENT_API_URL = '/api/settlement';
 
 export function getArciumRuntimeConfig() {
   return {
     rpcUrl: import.meta.env.VITE_SOLANA_RPC_URL || DEFAULT_RPC_URL,
-    stakeApiUrl: import.meta.env.VITE_ARCIUM_STAKE_API_URL || '',
-    settlementApiUrl: import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL || '',
+    stakeApiUrl: normalizeForecastApiUrl(import.meta.env.VITE_ARCIUM_STAKE_API_URL, DEFAULT_STAKE_API_URL),
+    settlementApiUrl: normalizeForecastApiUrl(import.meta.env.VITE_ARCIUM_SETTLEMENT_API_URL, DEFAULT_SETTLEMENT_API_URL),
     programId: import.meta.env.VITE_ARCIUM_MXE_PROGRAM_ID || '',
     clusterOffset: import.meta.env.VITE_ARCIUM_CLUSTER_OFFSET || '',
     stakeInstruction: import.meta.env.VITE_ARCIUM_STAKE_INSTRUCTION || 'submit_private_stake_v2',
@@ -16,7 +18,7 @@ export function getArciumRuntimeConfig() {
   };
 }
 
-export async function prepareEncryptedStake({ market, position, amount, multiplier }) {
+export async function prepareEncryptedStake({ market, position, amount, multiplier, walletAddress }) {
   const config = getArciumRuntimeConfig();
 
   if (!config.stakeApiUrl || !config.programId || !config.clusterOffset) {
@@ -28,11 +30,11 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
   }
 
   const wallet = getBrowserSolanaWallet();
-  const walletAddress = wallet?.publicKey?.toString?.();
-  if (!walletAddress) {
+  const activeWalletAddress = walletAddress || wallet?.publicKey?.toString?.();
+  if (!activeWalletAddress) {
     return {
       mode: 'wallet_required',
-      message: 'Connect Phantom or Backpack before submitting an encrypted stake.',
+      message: 'Connect a Forecast wallet before submitting an encrypted stake.',
       config,
     };
   }
@@ -43,7 +45,7 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        walletAddress,
+        walletAddress: activeWalletAddress,
         market: {
           id: market?.id,
           marketAddress: market?.marketAddress,
@@ -60,7 +62,7 @@ export async function prepareEncryptedStake({ market, position, amount, multipli
       }),
     });
   } catch {
-    throw new Error(`Cannot reach the local Arcium stake service at ${config.stakeApiUrl}. Start it with: node server/arciumStakeService.mjs`);
+    throw new Error(`Cannot reach the Forecast Arcium API at ${config.stakeApiUrl}. Check the Vercel API deployment and env vars.`);
   }
 
   if (!response.ok) {
@@ -130,4 +132,14 @@ async function safeJson(response) {
   } catch {
     return null;
   }
+}
+
+function normalizeForecastApiUrl(value, fallback = '') {
+  const url = String(value || fallback || '').trim();
+  const apiRoutes = {
+    '/stake': '/api/stake',
+    '/settlement': '/api/settlement',
+  };
+
+  return apiRoutes[url] || url;
 }

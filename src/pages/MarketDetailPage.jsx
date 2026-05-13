@@ -124,7 +124,13 @@ export function MarketDetailPage({
       setPhase('Preparing stake...');
       await wait(450);
       setPhase('Encrypting with Arcium MPC...');
-      const arciumResult = await prepareEncryptedStake({ market, position, amount: numericAmount, multiplier: 1 });
+      const arciumResult = await prepareEncryptedStake({
+        market,
+        position,
+        amount: numericAmount,
+        multiplier: 1,
+        walletAddress: wallet,
+      });
 
       if (arciumResult.mode !== 'encrypted_payload') {
         setPhase('');

@@ -267,6 +267,7 @@ function App() {
           position: marketDraft.seedSide || 'YES',
           amount: seedAmount,
           multiplier: 1,
+          walletAddress: walletProvider.publicKey.toBase58(),
         });
 
         if (arciumResult.mode !== 'encrypted_payload') {
