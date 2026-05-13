@@ -180,6 +180,7 @@ main {
   background: transparent;
   color: var(--text-secondary);
   font-size: 15px;
+  font-weight: 700;
   transition: background-color 150ms ease, color 150ms ease;
 }
 
@@ -2762,6 +2763,7 @@ textarea {
     background: transparent;
     color: var(--text-secondary);
     font-size: 10px;
+    font-weight: 700;
     line-height: 1;
     transition: background-color 150ms ease, color 150ms ease;
   }
