@@ -45,8 +45,8 @@ const FORECAST_CONFIG = process.env.FORECAST_CONFIG || process.env.VITE_FORECAST
 const ODDS_KEEPER_KEYPAIR_PATH = process.env.FORECAST_ODDS_KEEPER_KEYPAIR_PATH || '~/.config/solana/id.json';
 const KV_REST_API_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
 const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
 const SUPABASE_SETTLEMENT_CACHE_TABLE = process.env.SUPABASE_SETTLEMENT_CACHE_TABLE || 'forecast_settlement_cache';
 const SETTLEMENT_CACHE_TTL_SECONDS = Number(process.env.FORECAST_SETTLEMENT_CACHE_TTL_SECONDS || 60 * 60 * 24 * 7);
 const CAST_DECIMALS = 6n;
@@ -664,8 +664,7 @@ async function supabaseRequest(path, init = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      ...supabaseAuthHeaders(),
       ...(init.headers || {}),
     },
   });
@@ -677,6 +676,22 @@ async function supabaseRequest(path, init = {}) {
   if (response.status === 204) return null;
   const text = await response.text();
   return text ? JSON.parse(text) : null;
+}
+
+function supabaseAuthHeaders() {
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+  };
+
+  if (!SUPABASE_SERVICE_ROLE_KEY.startsWith('sb_secret_')) {
+    headers.Authorization = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
+  }
+
+  return headers;
+}
+
+function normalizeSupabaseUrl(value) {
+  return String(value || '').replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
 }
 
 async function kvRequest(path, init = {}) {
