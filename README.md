@@ -119,7 +119,11 @@ For Vercel, point the frontend API env vars at the serverless routes:
 VITE_ARCIUM_STAKE_API_URL=/api/stake
 VITE_ARCIUM_SETTLEMENT_API_URL=/api/settlement
 VITE_FORECAST_ODDS_API_URL=/api/odds/update
+VITE_POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
+POLYMARKET_GAMMA_URL=https://gamma-api.polymarket.com
 ```
+
+ForeCast proxies Polymarket Gamma requests through `/api/polymarket` in production. That keeps the browser away from CORS failures while still using live Polymarket discovery.
 
 Set `FORECAST_ODDS_KEEPER_SECRET_KEY` to the JSON array from the keeper wallet keypair. To keep settlement inputs durable across serverless cold starts, configure either Supabase or KV storage.
 

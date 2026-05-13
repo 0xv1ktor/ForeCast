@@ -49,6 +49,7 @@ const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
 const SUPABASE_SETTLEMENT_CACHE_TABLE = process.env.SUPABASE_SETTLEMENT_CACHE_TABLE || 'forecast_settlement_cache';
 const SETTLEMENT_CACHE_TTL_SECONDS = Number(process.env.FORECAST_SETTLEMENT_CACHE_TTL_SECONDS || 60 * 60 * 24 * 7);
+const POLYMARKET_GAMMA_URL = normalizeBaseUrl(process.env.POLYMARKET_GAMMA_URL || process.env.VITE_POLYMARKET_GAMMA_URL || 'https://gamma-api.polymarket.com');
 const CAST_DECIMALS = 6n;
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(MODULE_DIR, '..');
@@ -70,8 +71,9 @@ export function createForecastApiHandler() {
   return async function forecastApiHandler(req, res, next) {
     const route = normalizeApiRoute(req.url?.split('?')[0] || '');
     const handlesRoute = ['/stake', '/settlement/register', '/settlement', '/odds/update'].includes(route);
+    const handlesPolymarketProxy = route === '/polymarket' || route.startsWith('/polymarket/');
 
-    if (!handlesRoute && next) {
+    if (!handlesRoute && !handlesPolymarketProxy && next) {
       next();
       return;
     }
@@ -81,6 +83,16 @@ export function createForecastApiHandler() {
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    if (handlesPolymarketProxy) {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: 'Polymarket proxy only supports GET.' });
+        return;
+      }
+
+      await proxyPolymarketRequest(req, res);
       return;
     }
 
@@ -366,6 +378,32 @@ async function updatePublicOdds(body) {
   };
 }
 
+async function proxyPolymarketRequest(req, res) {
+  const sourceUrl = new URL(req.url || '/api/polymarket', 'http://forecast.local');
+  const route = normalizeApiRoute(sourceUrl.pathname);
+  const upstreamPath = route.replace(/^\/polymarket/, '') || '/markets';
+  const upstreamUrl = new URL(`${POLYMARKET_GAMMA_URL}${upstreamPath}`);
+  upstreamUrl.search = sourceUrl.search;
+
+  try {
+    const response = await fetch(upstreamUrl, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'ForeCast/1.0',
+      },
+    });
+    const text = await response.text();
+    setCors(res);
+    res.writeHead(response.status, {
+      'Content-Type': response.headers.get('content-type') || 'application/json; charset=utf-8',
+      'Cache-Control': response.ok ? 's-maxage=30, stale-while-revalidate=120' : 'no-store',
+    });
+    res.end(text);
+  } catch (error) {
+    sendJson(res, 502, { error: error.message || 'Polymarket proxy failed.' });
+  }
+}
+
 function buildStakePlaintext(body) {
   return [
     marketToFieldElement(body.market),
@@ -541,6 +579,10 @@ function parseKeypairSecret(value) {
 function normalizeApiRoute(route) {
   if (route.startsWith('/api/')) return route.replace(/^\/api/, '');
   return route;
+}
+
+function normalizeBaseUrl(url) {
+  return String(url || '').replace(/\/$/, '');
 }
 
 function anchorDiscriminator(name) {
@@ -768,7 +810,7 @@ function sendJson(res, status, body) {
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 

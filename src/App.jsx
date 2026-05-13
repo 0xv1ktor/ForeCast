@@ -17,7 +17,7 @@ import {
   syncForecastWallet,
 } from './integrations/forecast.js';
 import { fetchForecastPolymarkets } from './integrations/polymarket.js';
-import { walletProviderWithPublicKey } from './lib/async.js';
+import { wait, walletProviderWithPublicKey } from './lib/async.js';
 import { quoteBinaryTrade } from './lib/marketMaker.js';
 import {
   CreateMarketPage,
@@ -158,9 +158,8 @@ function App() {
     setConnectStatus('Opening wallet approval...');
 
     try {
-      const provider = await getForecastWalletProvider(name);
-      const connectionResult = provider?.connect ? await provider.connect() : null;
-      const publicKey = connectionResult?.publicKey || provider?.publicKey;
+      const provider = getForecastWalletProvider(name);
+      const publicKey = await connectForecastWalletProvider(provider);
 
       if (provider && publicKey) {
         const connectedProvider = provider.publicKey ? provider : walletProviderWithPublicKey(provider, publicKey);
@@ -186,6 +185,20 @@ function App() {
       setConnectStatus('');
       showToast(error.message || 'Wallet connection failed', 'warning');
     }
+  }
+
+  async function connectForecastWalletProvider(provider) {
+    if (!provider) return null;
+
+    const connectionResult = provider.connect ? await provider.connect() : null;
+    let publicKey = connectionResult?.publicKey || provider.publicKey || null;
+
+    for (let attempt = 0; !publicKey && attempt < 30; attempt += 1) {
+      await wait(150);
+      publicKey = provider.publicKey || null;
+    }
+
+    return publicKey;
   }
 
   async function handleDailyRefill() {

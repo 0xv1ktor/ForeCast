@@ -6,6 +6,13 @@ import {
   TransactionInstruction,
 } from '@solana/web3.js';
 import {
+  SolanaMobileWalletAdapter,
+  createDefaultAddressSelector,
+  createDefaultAuthorizationResultCache,
+  createDefaultWalletNotFoundHandler,
+} from '@solana-mobile/wallet-adapter-mobile';
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
+import {
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -675,7 +682,7 @@ export function getInjectedForecastWallet(walletName) {
   return window.solana || window.backpack?.solana || null;
 }
 
-export async function getForecastWalletProvider(walletName) {
+export function getForecastWalletProvider(walletName) {
   if (walletName === 'Mobile Wallet') {
     return createMobileWalletAdapter();
   }
@@ -683,20 +690,13 @@ export async function getForecastWalletProvider(walletName) {
   return getInjectedForecastWallet(walletName);
 }
 
-async function createMobileWalletAdapter() {
-  const [
-    {
-      SolanaMobileWalletAdapter,
-      createDefaultAuthorizationResultCache,
-      createDefaultWalletNotFoundHandler,
-    },
-    { WalletAdapterNetwork },
-  ] = await Promise.all([
-    import('@solana-mobile/wallet-adapter-mobile'),
-    import('@solana/wallet-adapter-base'),
-  ]);
+function createMobileWalletAdapter() {
+  if (!isAndroidChrome()) {
+    throw new Error('Mobile Wallet Adapter works on Android Chrome. On iOS, open ForeCast inside Phantom or Backpack in-app browser.');
+  }
 
   return new SolanaMobileWalletAdapter({
+    addressSelector: createDefaultAddressSelector(),
     appIdentity: {
       name: 'ForeCast',
       uri: typeof window !== 'undefined' ? window.location.origin : 'https://forecast.local',
@@ -706,6 +706,12 @@ async function createMobileWalletAdapter() {
     cluster: WalletAdapterNetwork.Devnet,
     onWalletNotFound: createDefaultWalletNotFoundHandler(),
   });
+}
+
+function isAndroidChrome() {
+  if (typeof navigator === 'undefined') return false;
+  const agent = navigator.userAgent || '';
+  return /Android/i.test(agent) && /Chrome/i.test(agent) && !/EdgA|OPR|Firefox|Brave/i.test(agent);
 }
 
 function buildClaimInitialCastInstruction({ config, owner, userCastAccount, faucetClaim }) {
@@ -913,7 +919,15 @@ async function sendWalletTransaction({ connection, walletProvider, tx }) {
 
   if (walletProvider.signAndSendTransaction) {
     const result = await walletProvider.signAndSendTransaction(tx);
-    const signature = typeof result === 'string' ? result : result.signature;
+    const signature = normalizeWalletSignature(typeof result === 'string' ? result : result.signature);
+    await connection.confirmTransaction(signature, 'confirmed');
+    return signature;
+  }
+
+  if (walletProvider.sendTransaction) {
+    const signature = normalizeWalletSignature(
+      await walletProvider.sendTransaction(tx, connection, { preflightCommitment: 'confirmed' }),
+    );
     await connection.confirmTransaction(signature, 'confirmed');
     return signature;
   }
@@ -926,6 +940,39 @@ async function sendWalletTransaction({ connection, walletProvider, tx }) {
   const signature = await connection.sendRawTransaction(signed.serialize());
   await connection.confirmTransaction(signature, 'confirmed');
   return signature;
+}
+
+function normalizeWalletSignature(signature) {
+  if (typeof signature === 'string') return signature;
+  if (signature instanceof Uint8Array || Array.isArray(signature)) return base58Encode(signature);
+  throw new Error('Wallet returned an unsupported transaction signature format.');
+}
+
+function base58Encode(bytes) {
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const source = Array.from(bytes);
+  if (!source.length) return '';
+
+  const digits = [0];
+  for (const byte of source) {
+    let carry = byte;
+    for (let index = 0; index < digits.length; index += 1) {
+      carry += digits[index] << 8;
+      digits[index] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+
+  for (const byte of source) {
+    if (byte === 0) digits.push(0);
+    else break;
+  }
+
+  return digits.reverse().map((digit) => alphabet[digit]).join('');
 }
 
 async function readCastBalance(connection, userCastAccount) {

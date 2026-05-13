@@ -1,7 +1,7 @@
 const DIRECT_GAMMA_URL = 'https://gamma-api.polymarket.com';
-const ENV_GAMMA_URL = import.meta.env.VITE_POLYMARKET_GAMMA_URL;
-const SHOULD_USE_DEV_PROXY = import.meta.env.DEV && (!ENV_GAMMA_URL || ENV_GAMMA_URL === DIRECT_GAMMA_URL);
-const GAMMA_URL = normalizeBaseUrl(SHOULD_USE_DEV_PROXY ? '/api/polymarket' : ENV_GAMMA_URL || DIRECT_GAMMA_URL);
+const ENV_GAMMA_URL = normalizeBaseUrl(import.meta.env.VITE_POLYMARKET_GAMMA_URL || '');
+const SHOULD_USE_PROXY = !ENV_GAMMA_URL || ENV_GAMMA_URL === DIRECT_GAMMA_URL;
+const GAMMA_URL = normalizeBaseUrl(SHOULD_USE_PROXY ? '/api/polymarket' : ENV_GAMMA_URL);
 
 const CATEGORY_ALIASES = [
   ['Crypto', ['crypto', 'bitcoin', 'ethereum', 'solana', 'stablecoin', 'defi']],
