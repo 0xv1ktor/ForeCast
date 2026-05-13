@@ -662,6 +662,8 @@ export async function settleAndPayStake(walletProvider, { market, stakeCommitmen
 }
 
 export function getInjectedForecastWallet(walletName) {
+  if (typeof window === 'undefined') return null;
+
   if (walletName === 'Backpack') {
     return window.backpack?.solana || window.backpack || null;
   }
@@ -671,6 +673,39 @@ export function getInjectedForecastWallet(walletName) {
   }
 
   return window.solana || window.backpack?.solana || null;
+}
+
+export async function getForecastWalletProvider(walletName) {
+  if (walletName === 'Mobile Wallet') {
+    return createMobileWalletAdapter();
+  }
+
+  return getInjectedForecastWallet(walletName);
+}
+
+async function createMobileWalletAdapter() {
+  const [
+    {
+      SolanaMobileWalletAdapter,
+      createDefaultAuthorizationResultCache,
+      createDefaultWalletNotFoundHandler,
+    },
+    { WalletAdapterNetwork },
+  ] = await Promise.all([
+    import('@solana-mobile/wallet-adapter-mobile'),
+    import('@solana/wallet-adapter-base'),
+  ]);
+
+  return new SolanaMobileWalletAdapter({
+    appIdentity: {
+      name: 'ForeCast',
+      uri: typeof window !== 'undefined' ? window.location.origin : 'https://forecast.local',
+      icon: '/forecast-mark.svg',
+    },
+    authorizationResultCache: createDefaultAuthorizationResultCache(),
+    cluster: WalletAdapterNetwork.Devnet,
+    onWalletNotFound: createDefaultWalletNotFoundHandler(),
+  });
 }
 
 function buildClaimInitialCastInstruction({ config, owner, userCastAccount, faucetClaim }) {

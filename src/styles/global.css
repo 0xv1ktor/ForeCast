@@ -2432,6 +2432,11 @@ main {
   background: var(--bg-surface);
 }
 
+.wallet-icon.mobile-wallet {
+  border-color: rgba(55, 138, 221, 0.5);
+  color: #7fc3ff;
+}
+
 .mpc-dots,
 .mini-dots {
   display: inline-flex;

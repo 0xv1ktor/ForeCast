@@ -38,6 +38,7 @@ In short:
 ## Current Features
 
 - Solana devnet wallet connection with Phantom or Backpack
+- Android Mobile Wallet Adapter support
 - `$CAST` faucet: 1,000 initial tokens plus 100 daily refill
 - Native ForeCast market creation
 - Private `$CAST` staking on native markets
@@ -111,6 +112,38 @@ VITE_ARCIUM_CLUSTER_OFFSET=456
 ```
 
 The Arcium client runs through the local Node/Vite server boundary because the SDK depends on Node crypto APIs.
+
+For Vercel, point the frontend API env vars at the serverless routes:
+
+```text
+VITE_ARCIUM_STAKE_API_URL=/api/stake
+VITE_ARCIUM_SETTLEMENT_API_URL=/api/settlement
+VITE_FORECAST_ODDS_API_URL=/api/odds/update
+```
+
+Set `FORECAST_ODDS_KEEPER_SECRET_KEY` to the JSON array from the keeper wallet keypair. To keep settlement inputs durable across serverless cold starts, configure either Supabase or KV storage.
+
+Supabase can be used instead of paid KV. Create this table in the Supabase SQL editor:
+
+```sql
+create table if not exists forecast_settlement_cache (
+  cache_key text primary key,
+  payload jsonb not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+```
+
+Then add these server-only env vars in Vercel:
+
+```text
+SUPABASE_URL=your_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_SETTLEMENT_CACHE_TABLE=forecast_settlement_cache
+FORECAST_SETTLEMENT_CACHE_TTL_SECONDS=604800
+```
+
+Do not expose the Supabase service role key with a `VITE_` prefix.
 
 ## How It Works
 

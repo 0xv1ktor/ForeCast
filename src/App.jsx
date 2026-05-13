@@ -7,6 +7,7 @@ import {
   fetchForecastNativeMarkets,
   fetchMarketStakeCommitments,
   fetchUserStakeCommitments,
+  getForecastWalletProvider,
   getInjectedForecastWallet,
   queueArciumSettlement,
   requestDailyCastRefill,
@@ -71,6 +72,8 @@ function App() {
 
     async function restoreWalletProvider() {
       const savedWalletName = localStorage.getItem('forecast-wallet-name') || selectedWallet || 'Phantom';
+      if (savedWalletName === 'Mobile Wallet') return;
+
       const provider = getInjectedForecastWallet(savedWalletName);
       if (!provider) return;
 
@@ -155,7 +158,7 @@ function App() {
     setConnectStatus('Opening wallet approval...');
 
     try {
-      const provider = getInjectedForecastWallet(name);
+      const provider = await getForecastWalletProvider(name);
       const connectionResult = provider?.connect ? await provider.connect() : null;
       const publicKey = connectionResult?.publicKey || provider?.publicKey;
 

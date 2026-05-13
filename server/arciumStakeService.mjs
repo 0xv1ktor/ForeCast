@@ -43,6 +43,12 @@ const SETTLEMENT_INSTRUCTION = process.env.ARCIUM_SETTLEMENT_INSTRUCTION || 'com
 const FORECAST_PROGRAM_ID = process.env.FORECAST_PROGRAM_ID || process.env.VITE_FORECAST_PROGRAM_ID || '';
 const FORECAST_CONFIG = process.env.FORECAST_CONFIG || process.env.VITE_FORECAST_CONFIG || '';
 const ODDS_KEEPER_KEYPAIR_PATH = process.env.FORECAST_ODDS_KEEPER_KEYPAIR_PATH || '~/.config/solana/id.json';
+const KV_REST_API_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
+const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_SETTLEMENT_CACHE_TABLE = process.env.SUPABASE_SETTLEMENT_CACHE_TABLE || 'forecast_settlement_cache';
+const SETTLEMENT_CACHE_TTL_SECONDS = Number(process.env.FORECAST_SETTLEMENT_CACHE_TTL_SECONDS || 60 * 60 * 24 * 7);
 const CAST_DECIMALS = 6n;
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(MODULE_DIR, '..');
@@ -62,7 +68,7 @@ const stakeSecretsByCommitment = new Map();
 
 export function createForecastApiHandler() {
   return async function forecastApiHandler(req, res, next) {
-    const route = req.url?.split('?')[0] || '';
+    const route = normalizeApiRoute(req.url?.split('?')[0] || '');
     const handlesRoute = ['/stake', '/settlement/register', '/settlement', '/odds/update'].includes(route);
 
     if (!handlesRoute && next) {
@@ -91,7 +97,7 @@ export function createForecastApiHandler() {
       const body = await readJson(req);
       let payload;
       if (route === '/stake') payload = await prepareStakePayload(body);
-      if (route === '/settlement/register') payload = registerSettlementSecret(body);
+      if (route === '/settlement/register') payload = await registerSettlementSecret(body);
       if (route === '/settlement') payload = await prepareSettlementPayload(body);
       if (route === '/odds/update') payload = await updatePublicOdds(body);
       sendJson(res, 200, payload);
@@ -138,7 +144,7 @@ async function prepareStakePayload(body) {
   });
   const payoutIfWonRaw = castUiAmountToRaw(quote.payout);
   const normalizedBody = { ...body, position };
-  pendingStakeSecrets.set(settlementCacheKey, {
+  await setSettlementCache(`pending:${settlementCacheKey}`, {
     walletAddress: body.walletAddress,
     marketAddress: body.market?.marketAddress || body.market?.id || '',
     marketKey: body.market?.marketAddress || body.market?.id || body.market?.conditionId || body.market?.title || '',
@@ -165,22 +171,22 @@ async function prepareStakePayload(body) {
   };
 }
 
-function registerSettlementSecret(body) {
+async function registerSettlementSecret(body) {
   const stakeCommitment = String(body.stakeCommitment || '').trim();
   const settlementCacheKey = String(body.settlementCacheKey || '').trim();
-  const pending = pendingStakeSecrets.get(settlementCacheKey);
+  const pending = await getSettlementCache(`pending:${settlementCacheKey}`);
 
   if (!stakeCommitment) throw new Error('stakeCommitment is required for settlement registration.');
-  if (!pending) throw new Error('Settlement secret cache entry was not found. Prepare the stake again.');
+  if (!pending) throw new Error('Settlement secret cache entry was not found. Prepare the stake again, or configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for serverless durability.');
 
-  stakeSecretsByCommitment.set(stakeCommitment, {
+  await setSettlementCache(`commitment:${stakeCommitment}`, {
     ...pending,
     stakeCommitment,
     owner: body.owner || pending.walletAddress,
     marketAddress: body.marketAddress || pending.marketAddress,
     registeredAt: Date.now(),
   });
-  pendingStakeSecrets.delete(settlementCacheKey);
+  await deleteSettlementCache(`pending:${settlementCacheKey}`);
 
   return {
     registered: true,
@@ -191,9 +197,9 @@ function registerSettlementSecret(body) {
 
 async function prepareSettlementPayload(body) {
   const stakeCommitment = String(body.stakeCommitment?.address || body.stakeCommitment || '').trim();
-  const secret = stakeSecretsByCommitment.get(stakeCommitment);
+  const secret = await getSettlementCache(`commitment:${stakeCommitment}`);
   if (!secret) {
-    throw new Error('Private settlement inputs are not registered for this stake. New stakes register automatically while the Forecast server is running.');
+    throw new Error('Private settlement inputs are not registered for this stake. New stakes register automatically; configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for durable serverless settlement.');
   }
 
   const requestedMarket = body.market?.marketAddress || body.market?.id || body.marketAddress || '';
@@ -505,9 +511,36 @@ function parsePublicKey(value) {
 }
 
 function readKeypair(keypairPath) {
+  const inlineSecret = process.env.FORECAST_ODDS_KEEPER_SECRET_KEY || '';
+  if (inlineSecret) {
+    return Keypair.fromSecretKey(Uint8Array.from(parseKeypairSecret(inlineSecret)));
+  }
+
   const expandedPath = keypairPath.replace(/^~(?=$|\/)/, homedir());
   const secret = JSON.parse(readFileSync(expandedPath, 'utf8'));
   return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+function parseKeypairSecret(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) throw new Error('FORECAST_ODDS_KEEPER_SECRET_KEY is empty.');
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+  }
+
+  const commaSeparated = trimmed.split(',').map((item) => Number(item.trim()));
+  if (commaSeparated.length > 1 && commaSeparated.every((item) => Number.isInteger(item))) {
+    return commaSeparated;
+  }
+
+  throw new Error('FORECAST_ODDS_KEEPER_SECRET_KEY must be a JSON array from a Solana keypair file.');
+}
+
+function normalizeApiRoute(route) {
+  if (route.startsWith('/api/')) return route.replace(/^\/api/, '');
+  return route;
 }
 
 function anchorDiscriminator(name) {
@@ -522,6 +555,145 @@ function writeU64(value) {
 
 function formatCastVolume(rawAmount) {
   return Number(rawAmount / 10n ** CAST_DECIMALS).toLocaleString('en-US');
+}
+
+async function getSettlementCache(key) {
+  const mode = durableSettlementCacheMode();
+  if (mode === 'memory') {
+    if (key.startsWith('pending:')) return pendingStakeSecrets.get(key.slice('pending:'.length));
+    if (key.startsWith('commitment:')) return stakeSecretsByCommitment.get(key.slice('commitment:'.length));
+    return null;
+  }
+
+  if (mode === 'supabase') return getSupabaseSettlementCache(key);
+
+  const response = await kvRequest(`/get/${encodeURIComponent(cacheKey(key))}`, { method: 'GET' });
+  const value = response?.result;
+  if (!value) return null;
+  return typeof value === 'string' ? JSON.parse(value) : value;
+}
+
+async function setSettlementCache(key, value) {
+  const mode = durableSettlementCacheMode();
+  if (mode === 'memory') {
+    if (key.startsWith('pending:')) pendingStakeSecrets.set(key.slice('pending:'.length), value);
+    if (key.startsWith('commitment:')) stakeSecretsByCommitment.set(key.slice('commitment:'.length), value);
+    return;
+  }
+
+  if (mode === 'supabase') {
+    await setSupabaseSettlementCache(key, value);
+    return;
+  }
+
+  const encodedKey = encodeURIComponent(cacheKey(key));
+  const encodedValue = encodeURIComponent(JSON.stringify(value));
+  const ttl = Number.isFinite(SETTLEMENT_CACHE_TTL_SECONDS) && SETTLEMENT_CACHE_TTL_SECONDS > 0
+    ? `?EX=${Math.floor(SETTLEMENT_CACHE_TTL_SECONDS)}`
+    : '';
+  await kvRequest(`/set/${encodedKey}/${encodedValue}${ttl}`, { method: 'POST' });
+}
+
+async function deleteSettlementCache(key) {
+  const mode = durableSettlementCacheMode();
+  if (mode === 'memory') {
+    if (key.startsWith('pending:')) pendingStakeSecrets.delete(key.slice('pending:'.length));
+    if (key.startsWith('commitment:')) stakeSecretsByCommitment.delete(key.slice('commitment:'.length));
+    return;
+  }
+
+  if (mode === 'supabase') {
+    await deleteSupabaseSettlementCache(key);
+    return;
+  }
+
+  await kvRequest(`/del/${encodeURIComponent(cacheKey(key))}`, { method: 'POST' });
+}
+
+function durableSettlementCacheMode() {
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) return 'supabase';
+  if (KV_REST_API_URL && KV_REST_API_TOKEN) return 'kv';
+  return 'memory';
+}
+
+function cacheKey(key) {
+  return `forecast:settlement:${key}`;
+}
+
+async function getSupabaseSettlementCache(key) {
+  const rows = await supabaseRequest(
+    `/rest/v1/${encodeURIComponent(SUPABASE_SETTLEMENT_CACHE_TABLE)}?cache_key=eq.${encodeURIComponent(cacheKey(key))}&select=payload,expires_at&limit=1`,
+    { method: 'GET' },
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return null;
+
+  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
+    await deleteSupabaseSettlementCache(key);
+    return null;
+  }
+
+  return row.payload || null;
+}
+
+async function setSupabaseSettlementCache(key, value) {
+  const expiresAt = new Date(Date.now() + Math.max(60, SETTLEMENT_CACHE_TTL_SECONDS) * 1000).toISOString();
+  await supabaseRequest(`/rest/v1/${encodeURIComponent(SUPABASE_SETTLEMENT_CACHE_TABLE)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({
+      cache_key: cacheKey(key),
+      payload: value,
+      expires_at: expiresAt,
+    }),
+  });
+}
+
+async function deleteSupabaseSettlementCache(key) {
+  await supabaseRequest(
+    `/rest/v1/${encodeURIComponent(SUPABASE_SETTLEMENT_CACHE_TABLE)}?cache_key=eq.${encodeURIComponent(cacheKey(key))}`,
+    { method: 'DELETE' },
+  );
+}
+
+async function supabaseRequest(path, init = {}) {
+  const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      ...(init.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase settlement cache request failed with HTTP ${response.status}`);
+  }
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function kvRequest(path, init = {}) {
+  const baseUrl = KV_REST_API_URL.replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${KV_REST_API_TOKEN}`,
+      ...(init.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Settlement cache request failed with HTTP ${response.status}`);
+  }
+
+  return response.json();
 }
 
 async function getMXEPublicKeyWithRetry(provider, programId, retries = 20) {

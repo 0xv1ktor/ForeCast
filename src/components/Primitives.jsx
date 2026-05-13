@@ -570,6 +570,13 @@ export function WalletModal({ status, selectedWallet, onChoose, onClose }) {
                 <small>Solana devnet signer</small>
               </span>
             </button>
+            <button onClick={() => onChoose('Mobile Wallet')}>
+              <span className="wallet-icon mobile-wallet">M</span>
+              <span>
+                <strong>Mobile Wallet</strong>
+                <small>Android Mobile Wallet Adapter</small>
+              </span>
+            </button>
           </div>
         )}
       </motion.div>
