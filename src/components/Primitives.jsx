@@ -64,6 +64,22 @@ export function LockIcon({ className = '' }) {
   );
 }
 
+export function NavIcon({ name }) {
+  const paths = {
+    markets: <path d="M4 18h16M5 14l4-4 4 3 6-7" />,
+    create: <path d="M12 5v14M5 12h14" />,
+    portfolio: <path d="M5 19V6h14v13M8 10h8M8 14h5" />,
+    rooms: <path d="M7 18v-4M12 18v-8M17 18v-6M5 20h14" />,
+    how: <path d="M12 18h.01M9.5 9a2.6 2.6 0 1 1 4.5 1.8c-1.1 1-1.8 1.5-1.8 3" />,
+  };
+
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {paths[name]}
+    </svg>
+  );
+}
+
 export function CastAmount({ value, encrypted = false }) {
   if (encrypted) {
     return <span className="cast encrypted">[ENCRYPTED]</span>;
@@ -452,6 +468,13 @@ export function Navbar({
         ) : (
           <button className="btn btn-secondary" onClick={onConnect}>Connect Wallet</button>
         )}
+      </div>
+      <div className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <AppLink to="/markets" navigate={navigate}><NavIcon name="markets" /><span>Markets</span></AppLink>
+        <AppLink to="/create" navigate={navigate}><NavIcon name="create" /><span>Create</span></AppLink>
+        <AppLink to={portfolioPath} navigate={navigate}><NavIcon name="portfolio" /><span>Portfolio</span></AppLink>
+        <AppLink to="/rooms" navigate={navigate}><NavIcon name="rooms" /><span>Rooms</span></AppLink>
+        <button type="button" onClick={onHowItWorks}><NavIcon name="how" /><span>How</span></button>
       </div>
     </nav>
   );
